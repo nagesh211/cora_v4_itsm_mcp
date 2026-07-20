@@ -1,0 +1,28 @@
+{
+  "_comment": "Maps a record-id prefix (e.g. INC0353896 -> INC) to the entity that record belongs to and the human identifier column to filter on. Extend this when a new module/record type is added -- no code change needed. `entity` is a schema_v3 entity slug (module_entity, e.g. itsm_incident); `id_column` is the human id column (not the *_system_id).",
+  "prefixes": {
+    "INC": {"entity": "itsm_incident",       "id_column": "incident_id"},
+    "CHG": {"entity": "itsm_change",          "id_column": "change_id"},
+    "PRB": {"entity": "itsm_problem",         "id_column": "problem_id"},
+    "RITM": {"entity": "itsm_servicerequest", "id_column": "request_item_id"},
+    "REQ": {"entity": "itsm_servicerequest",  "id_column": "request_item_id"},
+    "REL": {"entity": "itsm_release",         "id_column": "release_number"},
+    "TASK": {"entity": "itsm_servicedesk",    "id_column": "ticket_id"}
+  },
+  "entity_aliases": {
+    "incident": "itsm_incident",
+    "incidents": "itsm_incident",
+    "change": "itsm_change",
+    "changes": "itsm_change",
+    "problem": "itsm_problem",
+    "problems": "itsm_problem",
+    "release": "itsm_release",
+    "releases": "itsm_release",
+    "request": "itsm_servicerequest",
+    "requests": "itsm_servicerequest",
+    "ritm": "itsm_servicerequest",
+    "service request": "itsm_servicerequest",
+    "service desk": "itsm_servicedesk",
+    "servicedesk": "itsm_servicedesk"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "description": "User-facing filter VALUE synonyms -> the real stored value(s). The KEY side (which column a term filters) is handled by filter_aliases.json; this is the VALUE side. A target may be a single string or a list of candidates; the resolver keeps the FIRST candidate that actually appears in that column's schema `possible_values` (so the schema stays the source of truth and the same synonym works across columns whose 'completed' value differs, e.g. change.status_name=CLOSED vs release.state=Complete). Matching is case-insensitive and folds spaces/underscores/hyphens. Entries under `by_column` win over `global`.",
+  "global": {
+    "completed":    ["CLOSED", "COMPLETE", "COMPLETED", "DONE", "RESOLVED"],
+    "complete":     ["CLOSED", "COMPLETE", "COMPLETED", "DONE", "RESOLVED"],
+    "done":         ["CLOSED", "COMPLETE", "COMPLETED", "DONE", "RESOLVED"],
+    "finished":     ["CLOSED", "COMPLETE", "COMPLETED", "DONE", "RESOLVED"],
+    "resolved":     ["RESOLVED", "CLOSED", "COMPLETE", "COMPLETED"],
+    "closed":       ["CLOSED", "COMPLETE", "COMPLETED"],
+    "cancelled":    ["CANCELLED", "CANCELED"],
+    "canceled":     ["CANCELLED", "CANCELED"],
+    "open":         ["NEW", "OPEN", "ASSESS", "IN PROGRESS"],
+    "new":          ["NEW", "OPEN"],
+    "in progress":  ["IMPLEMENT", "IN PROGRESS", "WIP", "ASSESS"],
+    "ongoing":      ["IMPLEMENT", "IN PROGRESS", "WIP"],
+    "scheduled":    ["SCHEDULED"],
+    "under review": ["REVIEW"],
+    "reviewing":    ["REVIEW"],
+    "approved":     ["AUTHORIZE", "AUTHORIZED", "APPROVED"],
+    "pending approval": ["AUTHORIZE", "AUTHORIZED"]
+  },
+  "by_column": {
+    "type": {
+      "caused by change": ["Caused By Change"],
+      "change":           ["Change"]
+    }
+  }
+}

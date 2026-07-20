@@ -1,0 +1,14 @@
+{
+  "description": "User-facing filter aliases -> the canonical filter key used by the KPI configs (config/*.json 'filters.allowed'). Each config maps that key to its own physical column + filter_type, so aliases stay stable across KPIs even where the underlying column differs (e.g. risk -> risk_description). Matching is case-insensitive and folds spaces/underscores/hyphens; the canonical key itself is always accepted. No alias may map to two keys (validated at load).",
+  "aliases": {
+    "sector":           {"aliases": ["business", "p&l"],                       "column_type": "text[]"},
+    "division":         {"aliases": ["sub_sector", "sub_business", "sub_p&l"], "column_type": "text[]"},
+    "region":           {"aliases": ["region"],                                 "column_type": "text[]"},
+    "service":          {"aliases": ["service"],                                "column_type": "text[]"},
+    "service_area":     {"aliases": ["capability"],                            "column_type": "varchar"},
+    "category":         {"aliases": ["classification"],                        "column_type": "text[]"},
+    "risk":             {"aliases": ["risk type"],                             "column_type": "text[]"},
+    "type":             {"aliases": ["category type"],                         "column_type": "text[]"},
+    "assignment_group": {"aliases": ["team", "owner group", "responsible group"], "column_type": "text[]"}
+  }
+}

@@ -1,0 +1,18 @@
+# --- CORA MCP server ---
+mcp[cli]>=1.2.0          # FastMCP + streamable-http transport
+pyyaml>=6.0
+ruamel.yaml>=0.18        # schema restructure (order/comment preserving)
+pydantic>=2.5
+sqlglot>=25.0            # optional dialect transpile (gen_query degrades without it)
+python-dotenv>=1.0
+asyncpg>=0.30            # Postgres execution (dialect=postgres)
+
+# --- web chat UI (FastAPI) + LLM client ---
+fastapi>=0.110
+redis>=5.0               # per-conversation agent state keyed by request_uuid
+autogen-agentchat>=0.7.4,<0.8
+autogen-ext[openai,mcp]>=0.7.4,<0.8
+
+# --- dev / tests ---
+pytest>=8.0
+pytest-asyncio>=0.24

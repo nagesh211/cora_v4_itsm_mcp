@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>everestdx-itsm-mcp-service</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --panel2:#f8fafc; --line:#e3e8ef;
+    --txt:#0f1b2d; --muted:#5b6b82; --accent:#1667d6; --accent-soft:#e8f0fe;
+    --user:#1667d6; --bot:#0ea371; --err:#d13438; --ok:#0ea371;
+    --shadow:0 1px 3px rgba(16,32,60,.08),0 1px 2px rgba(16,32,60,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       display:flex;flex-direction:column;height:100vh}
+
+  /* Header */
+  header{display:flex;align-items:center;gap:12px;padding:12px 22px;
+         background:var(--panel);border-bottom:1px solid var(--line);box-shadow:var(--shadow);z-index:2}
+  .logo{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#1667d6,#0ea371);
+        display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px}
+  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
+  header .uuid{margin-left:14px;color:var(--muted);font-size:12px;font-family:ui-monospace,Consolas,monospace}
+  header .spacer{flex:1}
+  .newchat{display:flex;align-items:center;gap:7px;background:var(--accent);color:#fff;border:0;
+           border-radius:8px;padding:8px 14px;font-weight:600;font-size:14px;cursor:pointer}
+  .newchat:hover{filter:brightness(1.06)}
+  .newchat svg{width:15px;height:15px}
+
+  /* Chat */
+  #chat{flex:1;overflow-y:auto;padding:24px 0}
+  .row{max-width:900px;margin:0 auto 18px;padding:0 20px;display:flex;gap:12px;align-items:flex-start}
+  .row.user{flex-direction:row-reverse}
+  .avatar{width:36px;height:36px;border-radius:50%;flex:none;display:flex;align-items:center;
+          justify-content:center;box-shadow:var(--shadow)}
+  .avatar.user{background:var(--user)}
+  .avatar.bot{background:var(--bot)}
+  .avatar svg{width:20px;height:20px;fill:#fff}
+  .content{max-width:calc(100% - 96px)}
+  .bubble{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;
+          box-shadow:var(--shadow);white-space:pre-wrap;word-wrap:break-word}
+  .row.user .bubble{background:var(--accent);color:#fff;border-color:transparent}
+  .who{font-size:12px;color:var(--muted);margin:0 4px 5px}
+  .row.user .who{text-align:right}
+
+  /* Summary callout */
+  .summary{background:var(--accent-soft);border:1px solid #cfe0fd;border-left:4px solid var(--accent);
+           border-radius:10px;padding:11px 14px;margin-top:12px}
+  .summary .lbl{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--accent);text-transform:uppercase;margin-bottom:3px}
+
+  /* KPI meta / SQL / table */
+  .meta{margin-top:12px;font-size:12px;color:var(--muted)}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:20px;
+       padding:2px 10px;margin:0 6px 6px 0;color:#33465f;font-weight:500}
+  details{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);overflow:hidden}
+  details>summary{cursor:pointer;padding:9px 13px;color:var(--muted);font-size:13px;font-weight:600;user-select:none}
+  details pre{margin:0;padding:13px;overflow-x:auto;font:12px/1.5 ui-monospace,Consolas,monospace;
+              color:#243044;background:#fbfcfe;border-top:1px solid var(--line)}
+  .tblwrap{overflow-x:auto;margin-top:10px;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:7px 12px;text-align:left}
+  th{background:var(--panel2);color:#33465f;font-weight:600;position:sticky;top:0}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#f6f9ff}
+  .rowcount{font-size:12px;color:var(--muted);margin-top:6px}
+  .err{color:var(--err);font-size:13px;margin-top:8px;font-weight:500}
+
+  /* Composer */
+  footer{background:var(--panel);border-top:1px solid var(--line);padding:14px 20px}
+  .inrow{max-width:900px;margin:0 auto;display:flex;gap:10px}
+  textarea{flex:1;resize:none;background:#fff;border:1px solid var(--line);color:var(--txt);
+           border-radius:12px;padding:11px 15px;font:15px inherit;min-height:48px;max-height:170px;outline:none}
+  textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .send{background:var(--accent);color:#fff;border:0;border-radius:12px;padding:0 24px;font-weight:600;
+        font-size:15px;cursor:pointer}
+  .send:disabled{opacity:.5;cursor:default}
+  .hint{max-width:900px;margin:7px auto 0;color:var(--muted);font-size:12px}
+  .samples{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .samples span{cursor:pointer;background:var(--panel2);border:1px solid var(--line);border-radius:16px;
+                padding:4px 12px;font-size:12px;color:#33465f}
+  .samples span:hover{border-color:var(--accent);color:var(--accent)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #c7d2e0;border-top-color:var(--accent);
+        border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">e</div>
+  <h1>itsm-mcp-service</h1>
+  <span class="uuid" id="uuid"></span>
+  <span class="spacer"></span>
+  <button class="newchat" id="newchat">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    New chat
+  </button>
+</header>
+
+<div id="chat"></div>
+
+<footer>
+  <div class="inrow">
+    <textarea id="q" placeholder="Ask an ITSM KPI question, e.g. average emergency change lead time last quarter"></textarea>
+    <button class="send" id="send">Send</button>
+  </div>
+  <div class="hint">Enter to send · Shift+Enter for newline · conversation memory is tied to this chat session</div>
+</footer>
+
+<script>
+const chat=document.getElementById('chat'), q=document.getElementById('q'),
+      send=document.getElementById('send'), newchatBtn=document.getElementById('newchat'),
+      uuidEl=document.getElementById('uuid');
+
+let requestUuid=null;
+
+const USER_SVG='<svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-5 0-9 2.5-9 6v2h18v-2c0-3.5-4-6-9-6z"/></svg>';
+const BOT_SVG='<svg viewBox="0 0 24 24"><path d="M12 2a1 1 0 011 1v2h3a3 3 0 013 3v8a3 3 0 01-3 3H7a3 3 0 01-3-3V8a3 3 0 013-3h3V3a1 1 0 011-1zm-3 8a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM2 11h1v4H2a1 1 0 01-1-1v-2a1 1 0 011-1zm19 0h1a1 1 0 011 1v2a1 1 0 01-1 1h-1v-4z"/></svg>';
+
+function el(t,c,txt){const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;}
+function scroll(){chat.scrollTop=chat.scrollHeight;}
+
+function makeRow(kind){                       // kind: 'user' | 'bot'
+  const row=el('div','row '+kind);
+  const av=el('div','avatar '+kind); av.innerHTML=(kind==='user'?USER_SVG:BOT_SVG);
+  const content=el('div','content');
+  content.appendChild(el('div','who',kind==='user'?'You':'assistant'));
+  const bubble=el('div','bubble'); content.appendChild(bubble);
+  row.appendChild(av); row.appendChild(content);
+  chat.appendChild(row); scroll();
+  return bubble;
+}
+
+function renderTable(res){
+  const wrap=el('div','tblwrap'), t=el('table');
+  const cols=res.columns||[];
+  const head=el('tr'); cols.forEach(c=>head.appendChild(el('th',null,c))); t.appendChild(head);
+  (res.rows||[]).forEach(r=>{const tr=el('tr');cols.forEach(c=>{
+    let v=r[c]; if(v===null||v===undefined)v=''; else if(Array.isArray(v))v=v.join(', ');
+    tr.appendChild(el('td',null,String(v)));});t.appendChild(tr);});
+  wrap.appendChild(t);
+  return wrap;
+}
+
+function renderKpi(bubble,out){
+  const meta=el('div','meta');
+  if(out.title) meta.appendChild(el('span','tag',out.title));
+  if(out.execution_mode) meta.appendChild(el('span','tag',out.execution_mode));
+  if(out.mode) meta.appendChild(el('span','tag','mode: '+out.mode));
+  if(out.dimension) meta.appendChild(el('span','tag','by '+out.dimension));
+  if(out.resolved_from_phrase){const r=out.resolved_from_phrase;
+    meta.appendChild(el('span','tag','📅 '+r.start_date+' → '+r.end_date));}
+  bubble.appendChild(meta);
+  (out.results||[]).forEach(res=>{
+    const box=el('div');
+    box.appendChild(el('div','meta',res.label+'  ('+((res.window&&res.window.from)||'')+' → '+((res.window&&res.window.to)||'')+')'));
+    if(res.error){box.appendChild(el('div','err','⚠ '+res.error));}
+    else if(res.columns){box.appendChild(renderTable(res));
+      box.appendChild(el('div','rowcount',(res.rowcount||0)+' row(s)'+(res.truncated?' (truncated)':'')));}
+    const d=el('details'); d.appendChild(el('summary','View SQL'));
+    d.appendChild(el('pre',null,res.preview||res.sql||'')); box.appendChild(d);
+    bubble.appendChild(box);
+  });
+}
+
+function renderDataset(bubble,out){   // query_dataset (flat shape: sql + columns/rows)
+  const meta=el('div','meta');
+  if(out.base_table) meta.appendChild(el('span','tag',out.base_table));
+  (out.joined_tables||[]).forEach(t=>meta.appendChild(el('span','tag','⋈ '+t)));
+  if(out.date_window){const w=out.date_window;
+    meta.appendChild(el('span','tag','📅 '+w.start_date+' → '+w.end_date));}
+  bubble.appendChild(meta);
+  const box=el('div');
+  if(out.error){box.appendChild(el('div','err','⚠ '+out.error));}
+  else if(out.columns){box.appendChild(renderTable(out));
+    box.appendChild(el('div','rowcount',(out.rowcount||0)+' row(s)'+(out.truncated?' (truncated)':'')));}
+  const d=el('details'); d.appendChild(el('summary','View SQL'));
+  d.appendChild(el('pre',null,out.preview||out.sql||'')); box.appendChild(d);
+  bubble.appendChild(box);
+}
+
+function handleEvent(ctx, evt){
+  const c=evt.content;
+  if(c==='complete') return;
+  if(typeof c!=='object'||c===null) return;
+  const bubble=ctx.bubble;
+  const clear=()=>{ if(!ctx.started){ bubble.innerHTML=''; ctx.started=true; } };
+
+  if(c.request_uuid){ requestUuid=c.request_uuid; uuidEl.textContent='session '+requestUuid.slice(0,8); }
+  if(c.rephrased_question){ ctx.rephrased=c.rephrased_question; }
+  if(c.error){ clear(); bubble.appendChild(el('div','err',c.error)); ctx.rendered=true; }
+
+  if(c.chat_message){
+    clear();
+    if(ctx.rephrased && ctx.rephrased!==ctx.raw){
+      bubble.appendChild(el('div','meta','interpreted as: '+ctx.rephrased));
+    }
+    const s=el('div','summary'); s.appendChild(el('div','lbl','Answer'));
+    s.appendChild(el('div',null,c.chat_message)); bubble.appendChild(s);
+    ctx.rendered=true;
+  }
+
+  if(c.tool_outputs){
+    clear();
+    c.tool_outputs.forEach(to=>{
+      const out=to.result;
+      if(!out||typeof out!=='object') return;
+      if((to.name==='run_kpi'||to.name==='generate_query')&&out.results){ renderKpi(bubble,out); }
+      else if(to.name==='query_dataset'&&(out.columns||out.error||out.sql)){ renderDataset(bubble,out); }
+    });
+    ctx.rendered=true;
+  }
+  scroll();
+}
+
+async function ask(text){
+  makeRow('user').textContent=text;
+  const bubble=makeRow('bot');
+  bubble.innerHTML='<span class="spin"></span> thinking…';
+  send.disabled=true;
+  const ctx={bubble, raw:text, started:false, rendered:false, rephrased:null};
+  const payload={
+    message:{content:text, metadata:{}, models_usage:{prompt_tokens:0,completion_tokens:0},
+             source:'user', type:'TextMessage'},
+    request_uuid:requestUuid
+  };
+  try{
+    const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)});
+    const reader=r.body.getReader(), dec=new TextDecoder();
+    let buf='';
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let idx;
+      while((idx=buf.indexOf('\n\n'))>=0){
+        const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
+        const line=frame.split('\n').find(l=>l.startsWith('data:'));
+        if(!line) continue;
+        let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+        handleEvent(ctx, evt);
+      }
+    }
+    if(!ctx.rendered){ bubble.innerHTML=''; bubble.textContent='(no response)'; }
+  }catch(e){bubble.innerHTML='';bubble.appendChild(el('div','err','request failed: '+e));}
+  send.disabled=false; scroll();
+}
+
+async function newChat(){
+  chat.innerHTML='';
+  try{
+    const r=await fetch('/api/new_chat',{method:'POST'});
+    const d=await r.json(); requestUuid=d.request_uuid;
+  }catch(e){requestUuid=null;}
+  uuidEl.textContent=requestUuid?('session '+requestUuid.slice(0,8)):'';
+}
+
+send.onclick=()=>{const t=q.value.trim();if(t){q.value='';ask(t);}};
+q.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send.click();}});
+newchatBtn.onclick=newChat;
+
+newChat();   // start a fresh session on load
+</script>
+</body>
+</html>

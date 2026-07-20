@@ -1,0 +1,5639 @@
+modules:
+- name: itsm
+  database_type: postgres
+  code: INONE
+  is_date_applicable: true
+  description: This dataset contains information about incident, change, problem,Service requests,Service desk,release and availability; also it has calculations related various ITSM metrics.
+  relationships:
+  - name: incident_caused_by_change
+    description: Incidents linked to the change that caused them.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_change.tbl_change
+    via: itsm.tbl_incident_change_relation
+    left_on:
+      left_col: incident_system_id
+      via_col: incident_system_id
+    right_on:
+      right_col: change_system_id
+      via_col: change_system_id
+    const:
+      col: type
+      value: Caused By Change
+  - name: incident_has_problem
+    description: Incidents linked to a related problem record.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_problem.tbl_problem
+    via: itsm.tbl_incident_problem_relation
+    left_on:
+      left_col: incident_system_id
+      via_col: incident_system_id
+    right_on:
+      right_col: problem_system_id
+      via_col: problem_system_id
+  - name: release_causes_change
+    description: Releases joined to their changes by change_id.
+    left: itsm_release.tbl_pepops_release_mgmt
+    right: itsm_change.tbl_change
+    join_on:
+      left_col: change_id
+      right_col: change_id
+  - name: incident_sla_resolution
+    description: Incidents joined to their SLA resolution rows.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_incident.tbl_sla_resolution
+    join_on:
+      left_col: incident_system_id
+      right_col: incident_system_id
+  entities:
+  - name: Availability
+    tables:
+    - name: itsm_availability.tbl_tableau_major_incdnt
+      description: Availability data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: priority_description
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_duration_in_seconds
+        type: numeric
+        role: measure
+      - name: breached_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: boolean
+        role: dimension
+      - name: target
+        type: character varying
+        role: dimension
+      - name: group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: category
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: incident_sla_system_id
+        type: character varying
+        role: identifier
+      - name: closure_code
+        type: character varying
+        role: dimension
+      - name: sla_type
+        type: character varying
+        role: dimension
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+        deeper_insights: true
+      - name: problem_id
+        type: character varying
+        role: identifier
+      - name: problem_group_system_id
+        type: character varying
+        role: identifier
+      - name: location_system_id
+        type: character varying
+        role: identifier
+      - name: outbound_it_control_indicator
+        type: boolean
+        role: dimension
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_stage_description
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm_availability.tbl_tableau_outagesv4
+      description: Availability data for ITSM
+      time:
+        field: the_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: region_system_id
+        type: character varying
+        role: identifier
+      - name: sub_business_system_id
+        type: character varying
+        role: identifier
+      - name: business_system_id
+        type: character varying
+        role: identifier
+      - name: outage_system_id
+        type: character varying
+        role: identifier
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: status_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: priority_code
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: the_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dt_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dt_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: service_system_id
+        type: character varying
+        role: identifier
+      - name: service_name
+        type: character varying
+        role: dimension
+        canonical: service_name
+        deeper_insights: true
+      - name: service_class
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_control
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: service_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: outage_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: outage_seconds
+        type: bigint
+        role: measure
+      - name: support_group_system_id
+        type: character varying
+        role: identifier
+      - name: outbound_it_control_indicator
+        type: character varying
+        role: dimension
+      - name: project_system_id
+        type: character varying
+        role: identifier
+      - name: the_date
+        type: date
+        role: timestamp
+      - name: dt_start_date
+        type: date
+        role: timestamp
+      - name: dt_end_date
+        type: date
+        role: timestamp
+      - name: service_start_date
+        type: date
+        role: timestamp
+      - name: service_end_date
+        type: date
+        role: timestamp
+      - name: start_date
+        type: date
+        role: timestamp
+      - name: end_date
+        type: date
+        role: timestamp
+      - name: project_code
+        type: character varying
+        role: dimension
+      - name: project_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: project
+        type: character varying
+        role: dimension
+      - name: hypercare_project_code
+        type: character varying
+        role: dimension
+      - name: hypercare_project_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: hypercare_project
+        type: character varying
+        role: dimension
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: business_criticality_value
+        type: character varying
+        role: dimension
+      - name: hypercare_project_system_id
+        type: character varying
+        role: identifier
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        deeper_insights: true
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_all_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+        possible_values: ["P1", "P2", "P3", "P4", "P5"]
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+        deeper_insights: true
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: class_notes_text
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: reopen_date
+        type: date
+        role: timestamp
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: caller_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_major_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_ola_response
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: incident_sla_system_id
+        type: character varying
+        role: identifier
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_type_value
+        type: character varying
+        role: dimension
+      - name: sla_target_value
+        type: character varying
+        role: dimension
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: character varying
+        role: dimension
+      - name: sla_duration_seconds
+        type: character varying
+        role: dimension
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_stage
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: responsible_group
+        type: character varying
+        role: dimension
+      - name: responsible_group_service_area
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_1
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_2
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_3
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_4
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_5
+        type: character varying
+        role: dimension
+      - name: responsible_group_vendor
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: close_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: sla_start_date
+        type: date
+        role: timestamp
+      - name: sla_end_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: location_name
+        type: text
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: zip
+        type: character varying
+        role: dimension
+      - name: latitude
+        type: numeric
+        role: measure
+      - name: longitude
+        type: numeric
+        role: measure
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: reassignment_count
+        type: integer
+        role: measure
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: sla_breached_indicator_type
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_sla_resolution
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: incident_sla_system_id
+        type: character varying
+        role: identifier
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_type_value
+        type: character varying
+        role: dimension
+      - name: sla_target
+        type: character varying
+        role: dimension
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: integer
+        role: measure
+      - name: sla_duration_seconds
+        type: numeric
+        role: measure
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_stage
+        type: character varying
+        role: dimension
+      - name: responsible_group_name
+        type: character varying
+        role: dimension
+      - name: responsible_group_service_area
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_1
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_2
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_3
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_4
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_5
+        type: character varying
+        role: dimension
+      - name: responsible_group_vendor_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: sla_start_date
+        type: date
+        role: timestamp
+      - name: sla_end_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: location_name
+        type: text
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: zip
+        type: character varying
+        role: dimension
+      - name: latitude
+        type: numeric
+        role: measure
+      - name: longitude
+        type: numeric
+        role: measure
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: reassignment_count
+        type: integer
+        role: measure
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: sla_breached_indicator_type
+        type: character varying
+        role: dimension
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_change.tbl_change
+      description: Change data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: change_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_notes_text
+        type: text
+        role: dimension
+      - name: sap_impact_indicator
+        type: character varying
+        role: dimension
+      - name: ges_impact_indicator
+        type: character varying
+        role: dimension
+      - name: security_approval_required_indicator
+        type: character varying
+        role: dimension
+      - name: configuration_management_database_update_required_indicator
+        type: character varying
+        role: dimension
+      - name: just_text
+        type: text
+        role: dimension
+      - name: implementation_plan_text
+        type: text
+        role: dimension
+      - name: risk_impact_analysis_text
+        type: text
+        role: dimension
+      - name: breakout_plan_text
+        type: text
+        role: dimension
+      - name: test_plan_text
+        type: text
+        role: dimension
+      - name: planned_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: planned_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: type_code
+        type: character varying
+        role: dimension
+      - name: closure_code_description
+        type: character varying
+        role: dimension
+      - name: account_number
+        type: character varying
+        role: dimension
+      - name: name_value
+        type: character varying
+        role: dimension
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: impact_description
+        type: character varying
+        role: dimension
+      - name: urgency_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: type_description
+        type: character varying
+        role: dimension
+      - name: risk_description
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: successful_indicator
+        type: integer
+        role: measure
+      - name: major_incident
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: primary_configuration_item_name
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: value_text
+        type: text
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: planned_start_date
+        type: date
+        role: timestamp
+      - name: planned_end_date
+        type: date
+        role: timestamp
+      - name: downtime_start_date
+        type: date
+        role: timestamp
+      - name: downtime_end_date
+        type: date
+        role: timestamp
+      - name: work_start_date
+        type: date
+        role: timestamp
+      - name: work_end_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system_type
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: parent
+        type: character varying
+        role: dimension
+      - name: assistance_category
+        type: character varying
+        role: dimension
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: cab_path
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm.tbl_group_hierarchy
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: group_system_id
+        type: character varying
+        role: identifier
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm.tbl_incident_change_relation
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: character varying
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: character varying
+        role: timestamp
+  - name: change
+    tables:
+    - name: itsm_change.tbl_change
+      description: Change data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: change_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_notes_text
+        type: text
+        role: dimension
+      - name: sap_impact_indicator
+        type: character varying
+        role: dimension
+      - name: ges_impact_indicator
+        type: character varying
+        role: dimension
+      - name: security_approval_required_indicator
+        type: character varying
+        role: dimension
+      - name: configuration_management_database_update_required_indicator
+        type: character varying
+        role: dimension
+      - name: just_text
+        type: text
+        role: dimension
+      - name: implementation_plan_text
+        type: text
+        role: dimension
+      - name: risk_impact_analysis_text
+        type: text
+        role: dimension
+      - name: breakout_plan_text
+        type: text
+        role: dimension
+      - name: test_plan_text
+        type: text
+        role: dimension
+      - name: planned_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: planned_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: type_code
+        type: character varying
+        role: dimension
+      - name: closure_code_description
+        type: character varying
+        role: dimension
+      - name: account_number
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: name_value
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: impact_description
+        type: character varying
+        role: dimension
+      - name: urgency_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: type_description
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: risk_description
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: successful_indicator
+        type: integer
+        role: measure
+      - name: major_incident
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: primary_configuration_item_name
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: value_text
+        type: text
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: planned_start_date
+        type: date
+        role: timestamp
+      - name: planned_end_date
+        type: date
+        role: timestamp
+      - name: downtime_start_date
+        type: date
+        role: timestamp
+      - name: downtime_end_date
+        type: date
+        role: timestamp
+      - name: work_start_date
+        type: date
+        role: timestamp
+      - name: work_end_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: business_service
+        type: character varying
+        role: dimension
+      - name: production_system_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: parent
+        type: character varying
+        role: dimension
+      - name: assistance_category
+        type: character varying
+        role: dimension
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: cab_path
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm.tbl_change_company
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: combined_business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name
+        type: character varying
+        role: dimension
+        canonical: region
+      - name: sub_business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+    - name: itsm.tbl_incident_change_relation
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: character varying
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: character varying
+        role: timestamp
+    - name: itsm_incident.tbl_all_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: class_notes_text
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: reopen_date
+        type: date
+        role: timestamp
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: caller_name
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_servicerequest.tbl_request_item
+      description: Servicerequest data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: request_item_system_id
+        type: character varying
+        role: identifier
+      - name: request_item_id
+        type: character varying
+        role: identifier
+      - name: catlog_item
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: catlog_category
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: catlog_print_category
+        type: character varying
+        role: dimension
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: estimated_delivery_date_time
+        type: character varying
+        role: timestamp
+      - name: stage_description
+        type: character varying
+        role: dimension
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: request_type
+        type: character varying
+        role: dimension
+      - name: first_task_system_id
+        type: character varying
+        role: identifier
+      - name: first_task_id
+        type: character varying
+        role: identifier
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: first_task_vendor
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: first_task_estimated_delivery_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: first_task_delivery_populated_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: first_task_business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: standard_request_item_service_area
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: standard_request_item_owner
+        type: character varying
+        role: dimension
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_type_value
+        type: character varying
+        role: dimension
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: character varying
+        role: dimension
+      - name: sla_duration_seconds
+        type: bigint
+        role: measure
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_duration_day
+        type: character varying
+        role: dimension
+      - name: estimated_delivery_date
+        type: date
+        role: timestamp
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: first_task_estimated_delivery_date
+        type: date
+        role: timestamp
+      - name: first_task_delivery_populated_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: class_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: country
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: task_count
+        type: bigint
+        role: measure
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: business_duration_hours
+        type: numeric
+        role: measure
+      - name: priority
+        type: character varying
+        role: dimension
+      - name: business_duration_minutes
+        type: numeric
+        role: measure
+      - name: domain_name
+        type: character varying
+        role: dimension
+  - name: Incident
+    tables:
+    - name: itsm_incident.tbl_all_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: class_notes_text
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: reopen_date
+        type: date
+        role: timestamp
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: caller_name
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_incident_sla
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: incident_sla_system_id
+        type: character varying
+        role: identifier
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_type_value
+        type: character varying
+        role: dimension
+      - name: sla_target
+        type: character varying
+        role: dimension
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: integer
+        role: measure
+      - name: sla_duration_seconds
+        type: numeric
+        role: measure
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_stage
+        type: character varying
+        role: dimension
+      - name: responsible_group
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: responsible_group_service_area
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: responsible_group_hierarchy_1
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_2
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_3
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_4
+        type: character varying
+        role: dimension
+      - name: responsible_group_hierarchy_5
+        type: character varying
+        role: dimension
+      - name: responsible_group_vendor_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: sla_start_date
+        type: date
+        role: timestamp
+      - name: sla_end_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: location_name
+        type: text
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: zip
+        type: character varying
+        role: dimension
+      - name: latitude
+        type: numeric
+        role: measure
+      - name: longitude
+        type: numeric
+        role: measure
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: reassignment_count
+        type: integer
+        role: measure
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: sla_breached_indicator_type
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: elapsed_percentage
+        type: numeric
+        role: measure
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: caller_name
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: has_breached
+        type: character varying
+        role: dimension
+      - name: inc_active
+        type: character varying
+        role: dimension
+      - name: inc_description
+        type: character varying
+        role: dimension
+      - name: inc_location
+        type: character varying
+        role: dimension
+      - name: incident_status_name
+        type: character varying
+        role: dimension
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: sla
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: taskslatable_active
+        type: character varying
+        role: dimension
+      - name: taskslatable_business_duration
+        type: character varying
+        role: dimension
+      - name: taskslatable_business_duration_hours
+        type: character varying
+        role: dimension
+      - name: taskslatable_business_percentage
+        type: character varying
+        role: dimension
+      - name: taskslatable_duration
+        type: character varying
+        role: dimension
+      - name: taskslatable_duration_hours
+        type: character varying
+        role: dimension
+      - name: taskslatable_time_left
+        type: character varying
+        role: dimension
+      - name: taskslatable_time_left_hours
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_change.tbl_change
+      description: Change data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: change_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_notes_text
+        type: text
+        role: dimension
+      - name: sap_impact_indicator
+        type: character varying
+        role: dimension
+      - name: ges_impact_indicator
+        type: character varying
+        role: dimension
+      - name: security_approval_required_indicator
+        type: character varying
+        role: dimension
+      - name: configuration_management_database_update_required_indicator
+        type: character varying
+        role: dimension
+      - name: just_text
+        type: text
+        role: dimension
+      - name: implementation_plan_text
+        type: text
+        role: dimension
+      - name: risk_impact_analysis_text
+        type: text
+        role: dimension
+      - name: breakout_plan_text
+        type: text
+        role: dimension
+      - name: test_plan_text
+        type: text
+        role: dimension
+      - name: planned_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: planned_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: type_code
+        type: character varying
+        role: dimension
+      - name: closure_code_description
+        type: character varying
+        role: dimension
+      - name: account_number
+        type: character varying
+        role: dimension
+      - name: name_value
+        type: character varying
+        role: dimension
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: impact_description
+        type: character varying
+        role: dimension
+      - name: urgency_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: type_description
+        type: character varying
+        role: dimension
+      - name: risk_description
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: successful_indicator
+        type: integer
+        role: measure
+      - name: major_incident
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: primary_configuration_item_name
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: value_text
+        type: text
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: planned_start_date
+        type: date
+        role: timestamp
+      - name: planned_end_date
+        type: date
+        role: timestamp
+      - name: downtime_start_date
+        type: date
+        role: timestamp
+      - name: downtime_end_date
+        type: date
+        role: timestamp
+      - name: work_start_date
+        type: date
+        role: timestamp
+      - name: work_end_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system_type
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: parent
+        type: character varying
+        role: dimension
+      - name: assistance_category
+        type: character varying
+        role: dimension
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: cab_path
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm.tbl_incident_change_relation
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: character varying
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: character varying
+        role: timestamp
+    - name: itsm.tbl_incident_company
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name
+        type: character varying
+        role: dimension
+        canonical: region
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: combined_business_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+      - name: region_active_indicator
+        type: boolean
+        role: dimension
+  - name: problem
+    tables:
+    - name: itsm_problem.tbl_problem
+      description: Problem data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: problem_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: updated_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: target_resolution_date_time
+        type: character varying
+        role: timestamp
+      - name: major_problem_indicator
+        type: character varying
+        role: dimension
+      - name: user_resolution_codes
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: group_vendor
+        type: character varying
+        role: dimension
+      - name: full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: source_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: caused_by
+        type: character varying
+        role: dimension
+      - name: closure_code
+        type: character varying
+        role: dimension
+      - name: business_service_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: problem_manager
+        type: character varying
+        role: dimension
+      - name: work_note_text
+        type: character varying
+        role: dimension
+      - name: review_outcome_text
+        type: character varying
+        role: dimension
+      - name: closure_notes_text
+        type: character varying
+        role: dimension
+      - name: fix_note_text
+        type: character varying
+        role: dimension
+      - name: root_cause_description
+        type: character varying
+        role: dimension
+      - name: root_cause_analysis_completion_date_time
+        type: character varying
+        role: timestamp
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: updated_date
+        type: date
+        role: timestamp
+      - name: target_resolution_date
+        type: date
+        role: timestamp
+      - name: root_cause_analysis_completion_date
+        type: date
+        role: timestamp
+      - name: caused_by_preventive_maintenance
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: under_outside_it_control
+        type: character varying
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: root_cause_category_description
+        type: character varying
+        role: dimension
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm.tbl_group_hierarchy
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: group_system_id
+        type: character varying
+        role: identifier
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm_problem.tbl_problem_tsk_dim
+      description: Problem data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: problem_task_system_id
+        type: character varying
+        role: identifier
+      - name: problem_task_id
+        type: character varying
+        role: identifier
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: opened_for_contact_system_id
+        type: character varying
+        role: identifier
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: open_date_time_id
+        type: numeric
+        role: identifier
+      - name: close_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: close_date_time_id
+        type: numeric
+        role: identifier
+      - name: opened_by_gpid
+        type: character varying
+        role: dimension
+      - name: open_by_full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assign_contact_system_id
+        type: character varying
+        role: identifier
+      - name: assign_contact_gpid
+        type: character varying
+        role: dimension
+      - name: assign_contact_full_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: closed_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: closed_by_gpid
+        type: character varying
+        role: dimension
+      - name: closed_by_full_name
+        type: character varying
+        role: dimension
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: assigned_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: type_code
+        type: character varying
+        role: dimension
+      - name: type_description
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: reopend_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: customer_code_code
+        type: character varying
+        role: dimension
+      - name: customer_code_description
+        type: character varying
+        role: dimension
+      - name: due_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_around
+        type: character varying
+        role: dimension
+      - name: closure_code_code
+        type: character varying
+        role: dimension
+      - name: closure_code_description
+        type: character varying
+        role: dimension
+      - name: cause_notes
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: closure_notes_text
+        type: character varying
+        role: dimension
+      - name: fix_notes
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_create_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_create_user
+        type: character varying
+        role: dimension
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_last_update_user
+        type: character varying
+        role: dimension
+    - name: itsm_problem.tbl_sn_prblm_derivative
+      description: Problem data for ITSM
+      time:
+        field: dw_creation_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+      - name: created_knowledge_system_id
+        type: character varying
+        role: identifier
+      - name: knowledge_system_id
+        type: character varying
+        role: identifier
+      - name: interaction_system_id
+        type: character varying
+        role: identifier
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_system_id
+        type: character varying
+        role: identifier
+      - name: company_system_id
+        type: character varying
+        role: identifier
+      - name: child_problem_system_id
+        type: character varying
+        role: identifier
+      - name: problem_task_system_id
+        type: character varying
+        role: identifier
+      - name: risk_system_id
+        type: character varying
+        role: identifier
+      - name: xref_system_id
+        type: character varying
+        role: identifier
+      - name: risk_id
+        type: character varying
+        role: identifier
+      - name: dw_creation_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_creation_user
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_update_user
+        type: character varying
+        role: dimension
+        deeper_insights: true
+    - name: itsm.tbl_incident_problem_relation
+      description: Itsm data for ITSM
+      time:
+        field: system_updated_on
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm_incident.tbl_major_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_all_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: class_notes_text
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: reopen_date
+        type: date
+        role: timestamp
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: caller_name
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+  - name: release
+    tables:
+    - name: itsm_release.tbl_pepops_release_mgmt
+      description: Release data for ITSM
+      time:
+        field: created_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: release_system_id
+        type: character varying
+        role: identifier
+      - name: release_number
+        type: character varying
+        role: dimension
+      - name: release_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: release_description
+        type: character varying
+        role: dimension
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: state
+        type: character varying
+        role: dimension
+      - name: closure_code
+        type: character varying
+        role: dimension
+      - name: methodology
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: delivery_service_area
+        type: character varying
+        role: dimension
+      - name: delivery_group
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: delivery_hierarchy_1
+        type: character varying
+        role: dimension
+      - name: delivery_hierarchy_2
+        type: character varying
+        role: dimension
+      - name: delivery_hierarchy_3
+        type: character varying
+        role: dimension
+      - name: delivery_hierarchy_4
+        type: character varying
+        role: dimension
+      - name: delivery_hierarchy_5
+        type: character varying
+        role: dimension
+      - name: sector_list
+        type: character varying
+        role: dimension
+      - name: category
+        type: character varying
+        role: dimension
+      - name: type
+        type: character varying
+        role: dimension
+      - name: release_status
+        type: character varying
+        role: dimension
+      - name: change_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: company_system_id
+        type: character varying
+        role: identifier
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: impact_description
+        type: character varying
+        role: dimension
+    - name: itsm.tbl_incident_change_relation
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: character varying
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: dw_last_updt_dtm
+        type: character varying
+        role: timestamp
+    - name: itsm_incident.tbl_major_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: problem_system_id
+        type: character varying
+        role: identifier
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_change.tbl_change
+      description: Change data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: change_system_id
+        type: character varying
+        role: identifier
+      - name: change_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: text
+        role: dimension
+      - name: description_text
+        type: text
+        role: dimension
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_notes_text
+        type: text
+        role: dimension
+      - name: sap_impact_indicator
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: ges_impact_indicator
+        type: character varying
+        role: dimension
+      - name: security_approval_required_indicator
+        type: character varying
+        role: dimension
+      - name: configuration_management_database_update_required_indicator
+        type: character varying
+        role: dimension
+      - name: just_text
+        type: text
+        role: dimension
+      - name: implementation_plan_text
+        type: text
+        role: dimension
+      - name: risk_impact_analysis_text
+        type: text
+        role: dimension
+      - name: breakout_plan_text
+        type: text
+        role: dimension
+      - name: test_plan_text
+        type: text
+        role: dimension
+      - name: planned_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: planned_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: downtime_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: work_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: type_code
+        type: character varying
+        role: dimension
+      - name: closure_code_description
+        type: character varying
+        role: dimension
+      - name: account_number
+        type: character varying
+        role: dimension
+      - name: name_value
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: impact_description
+        type: character varying
+        role: dimension
+      - name: urgency_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: type_description
+        type: character varying
+        role: dimension
+      - name: risk_description
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: successful_indicator
+        type: integer
+        role: measure
+      - name: major_incident
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: primary_configuration_item_name
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: value_text
+        type: text
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: planned_start_date
+        type: date
+        role: timestamp
+      - name: planned_end_date
+        type: date
+        role: timestamp
+      - name: downtime_start_date
+        type: date
+        role: timestamp
+      - name: downtime_end_date
+        type: date
+        role: timestamp
+      - name: work_start_date
+        type: date
+        role: timestamp
+      - name: work_end_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: production_system
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: business_service
+        type: character varying
+        role: dimension
+      - name: production_system_type
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: parent
+        type: character varying
+        role: dimension
+      - name: assistance_category
+        type: character varying
+        role: dimension
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: cab_path
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+    - name: itsm_incident.tbl_all_incidents
+      description: Incident data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: incident_id
+        type: character varying
+        role: identifier
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: priority_code
+        type: character varying
+        role: dimension
+      - name: configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: active_indicator
+        type: character varying
+        role: dimension
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: location_name
+        type: character varying
+        role: dimension
+      - name: city
+        type: character varying
+        role: dimension
+      - name: gpid
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: assignee_contact_system_id
+        type: character varying
+        role: identifier
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: full_name
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: mim_description
+        type: character varying
+        role: dimension
+      - name: category_description
+        type: character varying
+        role: dimension
+      - name: major_incident_type
+        type: character varying
+        role: dimension
+      - name: active_indicator_type
+        type: character varying
+        role: dimension
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: class_notes_text
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: resolved_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: reopen_count
+        type: character varying
+        role: dimension
+      - name: closed_by_cntct_sys_id
+        type: character varying
+        role: identifier
+      - name: reopen_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: reopen_date
+        type: date
+        role: timestamp
+      - name: exception_status
+        type: character varying
+        role: dimension
+      - name: business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sub_category
+        type: character varying
+        role: dimension
+      - name: caller_system_id
+        type: character varying
+        role: identifier
+      - name: caller_name
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+  - name: service_desk
+    tables:
+    - name: itsm_servicedesk.tbl_fcr
+      description: Servicedesk data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: character varying
+        role: identifier
+      - name: ticket_id
+        type: character varying
+        role: identifier
+      - name: ticket_type
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: created_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: reassignment_count
+        type: integer
+        role: measure
+      - name: contact_type_description
+        type: character varying
+        role: dimension
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: first_assignment_group_name
+        type: character varying
+        role: dimension
+      - name: resolved_seconds
+        type: numeric
+        role: measure
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: first_assignment
+        type: character varying
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: country
+        type: character varying
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        deeper_insights: true
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: ARRAY
+        role: dimension
+    - name: itsm_servicedesk.tbl_happy_signals
+      description: Servicedesk data for ITSM
+      time:
+        field: timestamp
+        type: character varying
+        grain: day
+      columns:
+      - name: system_id
+        type: character varying
+        role: identifier
+      - name: mood
+        type: character varying
+        role: dimension
+      - name: response_id
+        type: character varying
+        role: identifier
+      - name: closing_assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: resolved_by_user_name
+        type: character varying
+        role: dimension
+      - name: score
+        type: integer
+        role: measure
+      - name: number
+        type: character varying
+        role: dimension
+      - name: task_number
+        type: character varying
+        role: dimension
+      - name: record
+        type: character varying
+        role: dimension
+      - name: system_domain
+        type: json
+        role: dimension
+      - name: class_name
+        type: character varying
+        role: dimension
+      - name: table
+        type: character varying
+        role: dimension
+      - name: timestamp
+        type: character varying
+        role: timestamp
+      - name: answered
+        type: character varying
+        role: dimension
+      - name: related_user_name
+        type: character varying
+        role: dimension
+      - name: profile
+        type: character varying
+        role: dimension
+      - name: system_modification_count
+        type: integer
+        role: measure
+      - name: system_tags
+        type: character varying
+        role: dimension
+      - name: feedback_text
+        type: text
+        role: dimension
+      - name: factors
+        type: character varying
+        role: dimension
+      - name: lost_work_time
+        type: integer
+        role: timestamp
+      - name: system_created_on
+        type: character varying
+        role: dimension
+      - name: system_created_on_date
+        type: date
+        role: timestamp
+      - name: system_created_by
+        type: character varying
+        role: dimension
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: system_updated_on_date
+        type: date
+        role: timestamp
+      - name: system_updated_by
+        type: character varying
+        role: dimension
+      - name: score_category
+        type: text
+        role: dimension
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+      - name: assigned_to
+        type: character varying
+        role: dimension
+      - name: sub_business_name_text
+        type: character varying
+        role: dimension
+      - name: region_name_text
+        type: character varying
+        role: dimension
+      - name: country
+        type: character varying
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: hr_business_unit
+        type: text
+        role: dimension
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: ARRAY
+        role: dimension
+    - name: itsm_servicedesk.tbl_instac_call_chat
+      description: Servicedesk data for ITSM
+      time:
+        field: start_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: call_dw_id
+        type: character varying
+        role: identifier
+      - name: call_id
+        type: character varying
+        role: identifier
+      - name: sequence_number
+        type: character varying
+        role: dimension
+      - name: digital_download
+        type: character varying
+        role: dimension
+      - name: start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: agent_skill_id
+        type: character varying
+        role: identifier
+      - name: agent_name_value
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: agent_time_value
+        type: character varying
+        role: dimension
+      - name: part_number
+        type: character varying
+        role: dimension
+      - name: agent_contact_system_id
+        type: character varying
+        role: identifier
+      - name: agent_gpid_value
+        type: character varying
+        role: dimension
+      - name: call_type_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: queue_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: caller_contact_system_id
+        type: character varying
+        role: identifier
+      - name: caller_value
+        type: character varying
+        role: dimension
+      - name: language_value
+        type: character varying
+        role: dimension
+      - name: call_disposition_value
+        type: character varying
+        role: dimension
+      - name: call_disposition_description
+        type: character varying
+        role: dimension
+      - name: call_offered_indicator
+        type: numeric
+        role: measure
+      - name: answered_indicator
+        type: character varying
+        role: dimension
+      - name: abandoned_indicator
+        type: character varying
+        role: dimension
+      - name: answered_in_30_indicator
+        type: character varying
+        role: dimension
+      - name: answered_out_30_indicator
+        type: character varying
+        role: dimension
+      - name: abandoned_in_30_indicator
+        type: character varying
+        role: dimension
+      - name: abandoned_out_30_indicator
+        type: character varying
+        role: dimension
+      - name: type
+        type: character varying
+        role: dimension
+      - name: start_date
+        type: date
+        role: timestamp
+      - name: end_date
+        type: date
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group
+        type: character varying
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: timed_out
+        type: character varying
+        role: dimension
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: ARRAY
+        role: dimension
+    - name: itsm_servicedesk.tbl_sn_intrctn_call
+      description: Servicedesk data for ITSM
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: character varying
+        role: identifier
+      - name: interaction_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: type
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: close_date
+        type: date
+        role: timestamp
+      - name: agent_chat
+        type: character varying
+        role: dimension
+      - name: virtual_agent
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assigned_to
+        type: character varying
+        role: dimension
+      - name: assignee_gpid
+        type: character varying
+        role: dimension
+      - name: call_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: closed_by
+        type: character varying
+        role: dimension
+      - name: closed_by_gpid
+        type: character varying
+        role: dimension
+      - name: created_by
+        type: character varying
+        role: dimension
+      - name: created_by_gpid
+        type: character varying
+        role: dimension
+      - name: opened_by
+        type: character varying
+        role: dimension
+      - name: opened_by_gpid
+        type: character varying
+        role: dimension
+      - name: opened_for
+        type: character varying
+        role: dimension
+      - name: opened_for_gpid
+        type: character varying
+        role: dimension
+      - name: updated_date
+        type: date
+        role: timestamp
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: updated_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: ARRAY
+        role: dimension
+      - name: country
+        type: ARRAY
+        role: dimension
+    - name: itsm_servicedesk.tbl_sn_intrctn_chat
+      description: Servicedesk data for ITSM
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: character varying
+        role: identifier
+      - name: interaction_id
+        type: character varying
+        role: identifier
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: state
+        type: character varying
+        role: dimension
+      - name: type
+        type: character varying
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: close_date
+        type: date
+        role: timestamp
+      - name: agent_chat
+        type: character varying
+        role: dimension
+      - name: virtual_agent
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: assigned_to
+        type: character varying
+        role: dimension
+      - name: assignee_gpid
+        type: character varying
+        role: dimension
+      - name: call_type
+        type: character varying
+        role: dimension
+      - name: closed_by
+        type: character varying
+        role: dimension
+      - name: closed_by_gpid
+        type: character varying
+        role: dimension
+      - name: created_by
+        type: character varying
+        role: dimension
+      - name: created_by_gpid
+        type: character varying
+        role: dimension
+      - name: opened_by
+        type: character varying
+        role: dimension
+      - name: opened_by_gpid
+        type: character varying
+        role: dimension
+      - name: opened_for
+        type: character varying
+        role: dimension
+      - name: opened_for_gpid
+        type: character varying
+        role: dimension
+      - name: updated_date
+        type: date
+        role: timestamp
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: updated_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: region_name
+        type: text []
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text []
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text []
+        role: dimension
+        canonical: sector
+        alias: sector
+        deeper_insights: true
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: ARRAY
+        role: dimension
+      - name: country
+        type: ARRAY
+        role: dimension
+    - name: itsm.tbl_group_hierarchy
+      description: Itsm data for ITSM
+      time:
+        field: dw_last_updt_dtm
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: group_system_id
+        type: character varying
+        role: identifier
+      - name: group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm.tbl_sn_grp_typ
+      description: Itsm data for ITSM
+      time:
+        field: dw_creation_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: group_type_system_id
+        type: character varying
+        role: identifier
+      - name: group_type_description
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: group_type_code
+        type: character varying
+        role: dimension
+      - name: dw_creation_user
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_update_user
+        type: character varying
+        role: dimension
+      - name: dw_creation_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+    - name: itsm.tbl_sn_grp_typ_xref
+      description: Itsm data for ITSM
+      time:
+        field: dw_creation_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: group_system_id
+        type: character varying
+        role: identifier
+      - name: group_type_system_id
+        type: character varying
+        role: identifier
+      - name: dw_creation_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_creation_user
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp without time zone
+        role: timestamp
+      - name: dw_last_updated_user
+        type: character varying
+        role: dimension
+  - name: service_request
+    tables:
+    - name: itsm_servicerequest.tbl_request_item
+      description: Servicerequest data for ITSM
+      time:
+        field: open_date_time
+        type: timestamp without time zone
+        grain: day
+      columns:
+      - name: request_item_system_id
+        type: character varying
+        role: identifier
+      - name: request_item_id
+        type: character varying
+        role: identifier
+      - name: catlog_item
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: catlog_category
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: catlog_print_category
+        type: character varying
+        role: dimension
+      - name: title_text
+        type: character varying
+        role: dimension
+      - name: description_text
+        type: character varying
+        role: dimension
+      - name: estimated_delivery_date_time
+        type: character varying
+        role: timestamp
+      - name: stage_description
+        type: character varying
+        role: dimension
+      - name: status_name
+        type: character varying
+        role: dimension
+      - name: open_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: request_type
+        type: character varying
+        role: dimension
+      - name: first_task_system_id
+        type: character varying
+        role: identifier
+      - name: first_task_id
+        type: character varying
+        role: identifier
+      - name: assignment_group_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: character varying
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: character varying
+        role: dimension
+      - name: hierarchy_2
+        type: character varying
+        role: dimension
+      - name: hierarchy_3
+        type: character varying
+        role: dimension
+      - name: hierarchy_4
+        type: character varying
+        role: dimension
+      - name: hierarchy_5
+        type: character varying
+        role: dimension
+      - name: first_task_vendor
+        type: character varying
+        role: dimension
+      - name: first_task_estimated_delivery_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: first_task_delivery_populated_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: first_task_business_service
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: standard_request_item_service_area
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: standard_request_item_owner
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_type_value
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: sla_start_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_end_date_time
+        type: timestamp without time zone
+        role: timestamp
+      - name: sla_breached_indicator
+        type: character varying
+        role: dimension
+      - name: sla_duration_seconds
+        type: bigint
+        role: measure
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_duration_day
+        type: character varying
+        role: dimension
+      - name: estimated_delivery_date
+        type: date
+        role: timestamp
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: first_task_estimated_delivery_date
+        type: date
+        role: timestamp
+      - name: first_task_delivery_populated_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: service_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: service_offering_configuration_item_system_id
+        type: character varying
+        role: identifier
+      - name: contact_type
+        type: character varying
+        role: dimension
+      - name: class_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: country
+        type: character varying
+        role: dimension
+      - name: service_offering_configuration_item_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: task_count
+        type: bigint
+        role: measure
+      - name: assignment_group_system_id
+        type: character varying
+        role: identifier
+      - name: vendor_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: vendor_type
+        type: character varying
+        role: dimension
+        deeper_insights: true
+      - name: system_updated_on
+        type: timestamp without time zone
+        role: timestamp
+      - name: closed_by_contact_system_id
+        type: character varying
+        role: identifier
+      - name: business_duration_hours
+        type: numeric
+        role: measure
+      - name: priority
+        type: character varying
+        role: dimension
+      - name: business_duration_minutes
+        type: numeric
+        role: measure
+      - name: domain_name
+        type: character varying
+        role: dimension
+        deeper_insights: true
