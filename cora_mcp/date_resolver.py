@@ -627,7 +627,7 @@ def resolve_dates(
     intent = det.extract(phrase or "")
     matched = intent is not None
     if intent is None:
-        # TODO: optional LLM fallback hook — structure an unusual phrase into a
+        #  optional LLM fallback hook — structure an unusual phrase into a
         # TimeframeIntent here, then let norm.normalize() compute the dates.
         log.info("date_resolver: no deterministic match for %r; defaulting to month-to-date", phrase)
         intent = TimeframeIntent(kind="relative", grain="month", include_current=True, to_date=True)
