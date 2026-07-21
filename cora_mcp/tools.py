@@ -18,6 +18,7 @@ Every invocation is logged (tool name, args, elapsed ms) by the shared wrapper.
 """
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import json
@@ -29,6 +30,7 @@ from cora_mcp.adhoc import plan_query as _plan_query, preflight as _preflight
 from cora_mcp.date_resolver import resolve_dates as _resolve_dates
 from cora_mcp.kpi_catalog import get_catalog
 from cora_mcp.logging_config import get_logger
+from cora_mcp.module_router import detect_module
 from cora_mcp.query_engine import (
     QueryError,
     generate_query as _generate_query,
@@ -130,12 +132,16 @@ def _register_core(mcp) -> List[str]:
         """Resolve a natural-language time phrase into an inclusive date window.
 
         Deterministic. Understands phrases like "last 3 months", "this month",
-        "MTD", "QTD", "YTD", "last quarter", "next 6 months", "between
-        2025-06-10 and 2025-08-15", "Aug 2025", "FY2024", "last 30 days",
-        "rest of this year". Fiscal year starts in April; weeks start Sunday.
+        "MTD/QTD/YTD/WTD" and their prior-period forms "PYTD/PMTD/PQTD" (= the
+        same elapsed span in the previous period, e.g. prior-year-to-date),
+        "today", "yesterday", "last/past N days", "N days ago", "last quarter",
+        "next 6 months", "between 2025-06-10 and 2025-08-15", "Aug 2025",
+        "Q3 2025", "H1 2025", "FY2024", "rest of this year". Fiscal year starts
+        in April; weeks start Sunday.
 
         Returns start_date / end_date (YYYY-MM-DD), a `matched` flag (False =>
-        fell back to month-to-date), and the original phrase.
+        the phrase was NOT recognised and this fell back to month-to-date — tell
+        the user the window was assumed), and the original phrase.
         """
         t0 = _log_call("resolve_dates", period=period)
         out = _resolve_dates(period)
@@ -150,29 +156,38 @@ def _register_core(mcp) -> List[str]:
         _log_done("list_modules", t0, f"-> {len(out)} modules")
         return out
 
-    def search_kpis(query: str, module: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def search_kpis(query: str, module: Optional[str] = None) -> List[Dict[str, Any]]:
         """Find KPI configs matching a natural-language question, ranked by
         relevance. Optionally restrict to a module code (am, cm, em, im, pm,
         rm, sd, sr). Returns each KPI's name, title, unit, execution mode,
         allowed filters and drilldown dimensions. Feed the chosen `name` to
         generate_query."""
         t0 = _log_call("search_kpis", query=query, module=module)
-        out = catalog.search(query, module=module)
+        # When the caller didn't pin a module, infer one from the question and
+        # search within it for sharper results. Fall back to an unfiltered search
+        # if the guess yields nothing, so a misdetection can never hide a hit.
+        detected = detect_module(query) if module is None else None
+        if detected:
+            log.info("search_kpis: routed %r -> module=%s", query, detected)
+        out = await catalog.search(query, module=module or detected)
+        if detected and not out:
+            log.info("search_kpis: module=%s filter empty; retrying unfiltered", detected)
+            out = await catalog.search(query)
         _log_done("search_kpis", t0, f"-> {[r['name'] for r in out]}")
         return out
 
-    def describe_kpi(kpi: str) -> Dict[str, Any]:
+    async def describe_kpi(kpi: str) -> Dict[str, Any]:
         """Return the full summary of one KPI config: title, unit, execution
         mode, allowed filters, drilldown dimensions and sample questions."""
         t0 = _log_call("describe_kpi", kpi=kpi)
-        out = catalog.summary(kpi)
+        out = await catalog.summary(kpi)
         if out is None:
-            near = [r["name"] for r in catalog.search(kpi, limit=5)]
+            near = [r["name"] for r in await catalog.search(kpi, limit=5)]
             out = {"error": f"unknown KPI {kpi!r}", "closest": near}
         _log_done("describe_kpi", t0)
         return out
 
-    def generate_query(
+    async def generate_query(
         kpi: str,
         period: Optional[str] = None,
         from_date: Optional[str] = None,
@@ -203,9 +218,9 @@ def _register_core(mcp) -> List[str]:
         t0 = _log_call("generate_query", kpi=kpi, period=period, mode=mode,
                        dim=dim, grain=grain, filters=filters, comparison=comparison)
         try:
-            out = _generate_query(kpi, period=period, from_date=from_date,
-                                  to_date=to_date, as_of=as_of, mode=mode, dim=dim,
-                                  grain=grain, filters=filters, comparison=comparison)
+            out = await _generate_query(kpi, period=period, from_date=from_date,
+                                        to_date=to_date, as_of=as_of, mode=mode, dim=dim,
+                                        grain=grain, filters=filters, comparison=comparison)
         except QueryError as exc:
             log.warning("generate_query rejected: %s", exc)
             return {"error": str(exc)}
@@ -373,7 +388,7 @@ def _register_core(mcp) -> List[str]:
         _log_done("get_record", t0, f"-> found={out.get('found')} {len(out['results'])} block(s)")
         return out
 
-    def plan_query(question: str, module: Optional[str] = None) -> Dict[str, Any]:
+    async def plan_query(question: str, module: Optional[str] = None) -> Dict[str, Any]:
         """PLAN an ad-hoc / cross-entity question BEFORE building a query — the
         discovery step for anything no governed KPI answers and that isn't a single
         named record. Identifies the entity(ies) the question is about and returns a
@@ -390,7 +405,7 @@ def _register_core(mcp) -> List[str]:
             bias entity identification.
         """
         t0 = _log_call("plan_query", question=question, module=module)
-        out = _plan_query(question, module=module)
+        out = await _plan_query(question, module=module)
         _log_done("plan_query", t0,
                   f"-> {len(out.get('candidates') or [])} candidate(s)")
         return out
@@ -485,7 +500,7 @@ def _register_core(mcp) -> List[str]:
         _log_done("overview_module", t0, f"-> {out['kpi_count']} KPI(s)")
         return out
 
-    def describe_module(module: Optional[str] = None) -> Dict[str, Any]:
+    async def describe_module(module: Optional[str] = None) -> Dict[str, Any]:
         """Catalog overview of ONE schema module: database type, coverage and its
         entities (query each via describe_dataset). For ITSM this also lists the
         governed KPI configs. Pass the module `name` (from list_modules); with no
@@ -499,11 +514,12 @@ def _register_core(mcp) -> List[str]:
                     "available_modules": valid}
         summary = loader.module_summary(module) or {}
         if module == "itsm":                       # itsm spans the KPI module codes
-            summary["kpis"] = [catalog.summary(n) for n in catalog.names()]
+            names = await catalog.names()
+            summary["kpis"] = list(await asyncio.gather(*(catalog.summary(n) for n in names)))
         _log_done("describe_module", t0)
         return summary
 
-    def describe_dataset(dataset: Optional[str] = None) -> Dict[str, Any]:
+    async def describe_dataset(dataset: Optional[str] = None) -> Dict[str, Any]:
         """Describe ONE dataset/entity: columns grouped by role (dimensions,
         measures, timestamps, identifiers), possible values, member tables and any
         related KPIs. Pass the entity `dataset` slug (e.g. 'itsm_change', from
@@ -519,7 +535,7 @@ def _register_core(mcp) -> List[str]:
         detail = loader.entity_detail(dataset)
         if detail is None:
             return {"error": f"unknown dataset {dataset!r}", "available_datasets": slugs}
-        related = catalog.configs_for_tables(detail_table_fqns(detail))
+        related = await catalog.configs_for_tables(detail_table_fqns(detail))
         if related:
             detail["related_kpis"] = related
         _log_done("describe_dataset", t0,

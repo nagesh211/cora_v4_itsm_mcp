@@ -134,8 +134,8 @@ def _relationships_among(slugs: List[str]) -> Tuple[List[dict], Dict[str, List[d
     return rels, reachable
 
 
-def plan_query(question: str, module: Optional[str] = None,
-               max_entities: int = 4) -> Dict[str, Any]:
+async def plan_query(question: str, module: Optional[str] = None,
+                     max_entities: int = 4) -> Dict[str, Any]:
     """Identify the entity(ies) a free-form question is about and return a compact
     schema context — columns by role, value domains, and the relationships between
     candidates — so a ``QuerySpec`` can be built against real names. This does NOT
@@ -159,7 +159,7 @@ def plan_query(question: str, module: Optional[str] = None,
     nq = _norm(question)
     maybe_metric = None
     if any(w.strip() in nq for w in _METRIC_WORDS):
-        hits = get_catalog().search(question, limit=3)
+        hits = await get_catalog().search(question, limit=3)
         maybe_metric = {"looks_like_aggregate": True,
                         "suggested_kpis": [{"name": h["name"], "title": h.get("title")} for h in hits],
                         "note": "This reads like a count/aggregate — prefer run_kpi if a KPI fits."}

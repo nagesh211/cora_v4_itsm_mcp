@@ -81,6 +81,59 @@ def test_unmatched_falls_back_to_mtd():
     assert out["end_date"] == "2025-09-15"
 
 
+def test_prior_to_date_year_not_swallowed_by_ytd():
+    # regression: "prior/last/previous year to date" must NOT resolve to CYTD.
+    for phrase in ("pytd", "prior year to date", "last year to date",
+                   "previous year to date"):
+        out = r(phrase)
+        assert out["matched"] is True, phrase
+        assert out["start_date"] == "2024-01-01", phrase
+        assert out["end_date"] == "2024-09-15", phrase
+
+
+def test_prior_month_quarter_week_to_date():
+    assert r("pmtd")["start_date"] == "2025-08-01"
+    assert r("pmtd")["end_date"] == "2025-08-15"
+    assert r("prior month to date")["end_date"] == "2025-08-15"
+    assert r("pqtd") == {"start_date": "2025-04-01", "end_date": "2025-06-16",
+                         "matched": True, "phrase": "pqtd"}
+    assert r("pwtd")["start_date"] == "2025-09-07"
+    assert r("pwtd")["end_date"] == "2025-09-08"
+
+
+def test_single_day_anchors():
+    assert r("today") == {"start_date": "2025-09-15", "end_date": "2025-09-15",
+                          "matched": True, "phrase": "today"}
+    assert r("yesterday")["start_date"] == "2025-09-14"
+    assert r("yesterday")["end_date"] == "2025-09-14"
+    assert r("last day")["start_date"] == "2025-09-14"
+    assert r("3 days ago") == {"start_date": "2025-09-12", "end_date": "2025-09-12",
+                               "matched": True, "phrase": "3 days ago"}
+
+
+def test_rolling_days_variants():
+    # past/previous (not just "last") and singular "day" now match.
+    assert r("past 4 days")["start_date"] == "2025-09-12"
+    assert r("past 4 days")["end_date"] == "2025-09-15"
+    assert r("previous 4 days")["start_date"] == "2025-09-12"
+    assert r("last 1 day") == {"start_date": "2025-09-15", "end_date": "2025-09-15",
+                               "matched": True, "phrase": "last 1 day"}
+
+
+def test_half_year_and_calendar_quarter_and_wtd():
+    assert r("H1 2025") == {"start_date": "2025-01-01", "end_date": "2025-06-30",
+                            "matched": True, "phrase": "H1 2025"}
+    assert r("H2 2024")["start_date"] == "2024-07-01"
+    assert r("H2 2024")["end_date"] == "2024-12-31"
+    assert r("first half of 2025")["end_date"] == "2025-06-30"
+    assert r("Q1 2025") == {"start_date": "2025-01-01", "end_date": "2025-03-31",
+                            "matched": True, "phrase": "Q1 2025"}
+    assert r("Q3 2025")["start_date"] == "2025-07-01"
+    assert r("Q3 2025")["end_date"] == "2025-09-30"
+    assert r("wtd")["start_date"] == "2025-09-14"
+    assert r("wtd")["end_date"] == "2025-09-15"
+
+
 def test_bucket_windows_month_clamps_to_edges():
     # partial first/last months are clamped to the requested window edges
     assert bucket_windows("2026-05-01", "2026-06-30", "month") == [

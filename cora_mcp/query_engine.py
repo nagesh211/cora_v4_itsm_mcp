@@ -355,11 +355,15 @@ def _augment_fields(config: dict, names) -> dict:
 def _effective_dim(
     config: dict, mode: str, dim: Union[str, List[str], None]
 ) -> Union[str, List[str], None]:
-    if mode != "table":
+    # Dimensions are groupable in BOTH table mode (breakdown) and series mode (a
+    # per-dimension trend — a time bucket AND a group-by at once).
+    if mode not in ("table", "series"):
         return dim
     if not dim:
-        view = gq._find_view(config, "table") or {}
-        return view.get("by")
+        if mode == "table":
+            view = gq._find_view(config, "table") or {}
+            return view.get("by")
+        return None                       # series without a dimension = overall trend
     # Normalise each requested breakdown word to a groupable name for this KPI.
     # An unresolved word is left as-is so the builder raises its clear column error.
     if isinstance(dim, (list, tuple)):
@@ -367,7 +371,106 @@ def _effective_dim(
     return resolve_dim_word(config, dim) or dim
 
 
-def generate_query(
+# Trend grain is derived from the requested window span, not dictated by the caller:
+# a month-long window trends WEEKLY, a multi-month window MONTHLY, a multi-year window
+# QUARTERLY. An explicit grain is honoured only when it still yields a real trend
+# (>= 2 buckets and not absurdly many) — so "monthly over last 6 months" is kept, but
+# "monthly over last month" (1 bucket) is corrected to weekly.
+def _span_days(frm: str, to: str) -> int:
+    from datetime import date
+    a = date.fromisoformat(str(frm)[:10])
+    b = date.fromisoformat(str(to)[:10])
+    return abs((b - a).days) + 1
+
+
+def _auto_grain(frm: str, to: str, requested: Optional[str]) -> str:
+    span = _span_days(frm, to)
+    if span <= 14:
+        natural = "day"
+    elif span <= 45:
+        natural = "week"
+    elif span <= 750:
+        natural = "month"
+    else:
+        natural = "quarter"
+    if requested:
+        try:
+            n = len(bucket_windows(frm, to, requested))
+        except Exception:
+            n = 0
+        if 2 <= n <= 60:
+            return requested
+    return natural
+
+
+# ASCII Unit Separator — folds several group-by columns into one composite key so a
+# single-{dim} authored template can group by multiple dimensions; it never occurs in
+# real dimension values, so splitting the key back apart is lossless.
+_MDIM_SEP = "chr(31)"
+
+
+def _dim_to_column(config: dict, name: str) -> str:
+    """The PHYSICAL column for a resolved dimension name. A KPI's filter/dimension
+    can be a *field* whose real column differs (``region`` -> ``region_name``); the
+    authored ``a.{dim}`` breakdown template needs the real column, not the field name.
+    Drilldown dims are already column names, so they pass through unchanged."""
+    meta = (config.get("fields") or {}).get(name) or {}
+    col = meta.get("column")
+    return col if col and "." not in col else name
+
+
+def _breakdown_inner_sql(config: dict, dim_cols: List[str]) -> Optional[str]:
+    """Substitute a KPI's authored ``{dim}`` breakdown query for ONE or MORE group-by
+    columns (each mapped to its physical column). Multiple columns are folded into a
+    single composite key ``(a.c1::text || sep || a.c2::text)`` so the template — which
+    uses ``a.{dim}`` in SELECT, GROUP BY and any self-joins — stays valid with one
+    substitution. Returns ``None`` when the template can't express the request (no
+    ``{dim}`` slot, or a multi-dim fold left an un-prefixed ``{dim}``)."""
+    query = ((config.get("drilldown") or {}).get("breakdown") or {}).get("query")
+    if not query or "{dim}" not in query:
+        return None
+    cols = [_dim_to_column(config, c) for c in dim_cols]
+    if len(cols) == 1:
+        return query.replace("{dim}", cols[0])
+    expr = "(" + (" || %s || " % _MDIM_SEP).join("a.%s::text" % c for c in cols) + ")"
+    out = query.replace("a.{dim}", expr)
+    return None if "{dim}" in out else out
+
+
+def _grp_select(dim_cols: List[str]) -> str:
+    """Projection that exposes the (possibly composite) group key as grp, grp2, … —
+    the shape ``_breakdown_rows`` and the DSL table path already use."""
+    if len(dim_cols) == 1:
+        cols = ["_b.grp AS grp"]
+    else:
+        cols = ["split_part(_b.grp, %s, %d) AS %s"
+                % (_MDIM_SEP, i + 1, "grp" if i == 0 else "grp%d" % (i + 1))
+                for i in range(len(dim_cols))]
+    return ", ".join(cols)
+
+
+def _sql_bucket_breakdown(config: dict, dim_cols, win, label: str):
+    """One time bucket of a SQL-mode trend broken down by one or more dimensions.
+
+    The authored scalar query can't GROUP BY, but the KPI's ``{dim}`` breakdown query
+    can — run it for this bucket's window and tag every row with the bucket label,
+    yielding ``(bucket, grp[, grp2, …], v)`` rows. Dates are inlined (the template
+    carries no bind params), so ``params`` is empty."""
+    dim_cols = list(dim_cols) if isinstance(dim_cols, (list, tuple)) else [dim_cols]
+    inner_tmpl = _breakdown_inner_sql(config, dim_cols)
+    if inner_tmpl is None:
+        raise QueryError("SQL-mode KPI has no reusable breakdown query for these dimensions")
+    cf, ct = win
+    inner = gq.substitute_dates(inner_tmpl, {"from_date": cf, "to_date": ct, "as_of": ct})
+    if "{" in inner:
+        raise QueryError("SQL-mode breakdown query has an unfilled placeholder for the "
+                         "trend bucket window")
+    sql = ("SELECT %s AS bucket, %s, _b.v AS v FROM (%s) _b"
+           % (gq._lit(label), _grp_select(dim_cols), inner))
+    return sql, []
+
+
+async def generate_query(
     kpi: str,
     period: Optional[str] = None,
     from_date: Optional[str] = None,
@@ -381,12 +484,14 @@ def generate_query(
 ) -> Dict[str, Any]:
     """Generate SQL for a KPI config. See module docstring for semantics.
 
-    `dim` (table mode) may be a single field or a list of fields to break the
-    KPI down by more than one dimension (e.g. ["region_name", "priority"])."""
+    Async because the config is fetched from the (async) config store; the SQL
+    build itself (gen_query) is pure CPU. `dim` (table mode) may be a single field
+    or a list of fields to break the KPI down by more than one dimension (e.g.
+    ["region_name", "priority"])."""
     catalog = get_catalog()
-    config = catalog.get(kpi)
+    config = await catalog.get(kpi)
     if config is None:
-        near = [r["name"] for r in catalog.search(kpi, limit=5)]
+        near = [r["name"] for r in await catalog.search(kpi, limit=5)]
         raise QueryError(f"unknown KPI {kpi!r}. Closest matches: {near or 'none'}")
 
     if mode not in _MODES:
@@ -417,16 +522,64 @@ def generate_query(
     filter_by = _resolve_filters(config, _normalize_filters(filters))
     # Schema fallback: a dimension/filter the config didn't declare but that the
     # primary table really has is still emittable — inject a synthetic field so the
-    # builder and validator treat it like any declared field.
+    # builder and validator treat it like any declared field. Applies to table AND
+    # series (a per-dimension trend also groups by the dimension).
     dim_names = ((eff_dim if isinstance(eff_dim, (list, tuple)) else [eff_dim])
-                 if (mode == "table" and eff_dim) else [])
+                 if (mode in ("table", "series") and eff_dim) else [])
     config = _augment_fields(config, [*dim_names, *filter_by.keys()])
     _validate_filters(config, filter_by)
     filter_by = _resolve_filter_values(config, filter_by)
 
     # ---- build the request windows (mirrors gen_query.main) --------------
     is_sql = config.get("execution_mode") != "DSL"
-    eff_grain = grain
+    # Trend grain follows the duration (weekly for ~a month, monthly for longer),
+    # so "trend for last month" buckets by week and "trend for last 6 months" by
+    # month — no matter what grain the caller guessed.
+    eff_grain = _auto_grain(frm, to, grain) if mode == "series" else grain
+
+    # A trend broken down by one or more dimensions. Keep only the dimensions this
+    # KPI can actually group by — a declared drilldown dim, a real column on its
+    # primary table, or a declared field — and break the trend down by that VALID
+    # subset; anything unavailable (e.g. NPS "by CI name", where the survey table has
+    # no CI column) is recorded so the answer says so, never silently dropped.
+    #   * DSL KPIs group by the valid dims directly (bucket + dims).
+    #   * SQL-mode KPIs fold the valid dims into a composite key and run the authored
+    #     {dim} breakdown query per bucket; per-KPI filters can't be added there.
+    sql_series_dim_cols: Optional[List[str]] = None
+    dimension_note: Optional[str] = None
+    if mode == "series" and eff_dim:
+        dims_list = list(eff_dim) if isinstance(eff_dim, (list, tuple)) else [eff_dim]
+        schema_cols = set(schema_columns_for(config))
+        dims_allowed = set((config.get("drilldown") or {}).get("dimensions") or [])
+        # A dim is groupable when its PHYSICAL column is a real column on the KPI's
+        # primary table (or it's a declared drilldown dimension) — so "region"
+        # (field -> region_name) counts, but "ci name" (no such column) does not.
+        def _ok(d):
+            return d in dims_allowed or _dim_to_column(config, d) in schema_cols
+        valid = [d for d in dims_list if _ok(d)]
+        invalid = [d for d in dims_list if not _ok(d)]
+        real_filters = [k for k in filter_by if k != "granularity"]
+
+        if not valid:
+            dimension_note = ("this KPI can't break its trend down by %s, so the overall "
+                              "trend is shown." % dims_list)
+            eff_dim = None
+        elif is_sql and _breakdown_inner_sql(config, valid) is None:
+            dimension_note = ("this SQL-mode KPI has no reusable breakdown query, so the "
+                              "overall trend is shown (not per %s)." % valid)
+            eff_dim = None
+        elif is_sql and real_filters:
+            dimension_note = ("this SQL-mode breakdown can't also apply filter(s) %s, so the "
+                              "overall trend is shown." % real_filters)
+            eff_dim = None
+        else:
+            eff_dim = valid if len(valid) > 1 else valid[0]
+            if is_sql:
+                sql_series_dim_cols = valid
+            if invalid:                       # partial: valid subset kept, rest unavailable
+                dimension_note = ("broke the trend down by %s; %s not available on this "
+                                  "metric." % (valid, invalid))
+
     if as_of:
         windows = [("as-of %s" % as_of, (None, gq._end(as_of)))]
     elif mode == "stat" and explicit_window:
@@ -449,7 +602,6 @@ def generate_query(
         # number. Build the series by running that query once per period bucket —
         # this is what comparative questions ("increase or decrease over the last
         # N months", "trend") need: a value per period, not a single average.
-        eff_grain = grain or "month"
         windows = [("%s %s" % (eff_grain, label), (gq._start(bf), gq._end(bt)))
                    for label, (bf, bt) in bucket_windows(frm, to, eff_grain)]
     else:
@@ -458,14 +610,18 @@ def generate_query(
     # ---- generate SQL per window ----------------------------------------
     results: List[Dict[str, Any]] = []
     for label, win in windows:
-        payload = gq.build_payload(config, mode, win, filter_by, eff_dim, grain)
-        try:
-            sql, params = gq.build_sql(config, payload)
-        except ValueError as exc:
-            # gen_query raises ValueError for requests it can't honour (e.g. a
-            # SQL-mode KPI asked for a dimension, or filters with no {filters}
-            # slot). Surface these as clean QueryErrors, not unhandled 500s.
-            raise QueryError(str(exc)) from exc
+        if sql_series_dim_cols:
+            # SQL-mode per-dimension trend: authored breakdown query per bucket.
+            sql, params = _sql_bucket_breakdown(config, sql_series_dim_cols, win, label)
+        else:
+            payload = gq.build_payload(config, mode, win, filter_by, eff_dim, eff_grain)
+            try:
+                sql, params = gq.build_sql(config, payload)
+            except ValueError as exc:
+                # gen_query raises ValueError for requests it can't honour (e.g. a
+                # SQL-mode KPI asked for a dimension, or filters with no {filters}
+                # slot). Surface these as clean QueryErrors, not unhandled 500s.
+                raise QueryError(str(exc)) from exc
         cf, ct = win
         results.append({
             "label": label,
@@ -489,8 +645,12 @@ def generate_query(
         "comparison": comparison,
         "results": results,
     }
-    log.info("generate_query kpi=%s mode=%s window=%s..%s dim=%s -> %d result(s)",
-             kpi, mode, frm, to, eff_dim, len(results))
+    if dimension_note:                        # a requested breakdown couldn't be honoured
+        out["dropped_dim"] = dim
+        out["dimension_note"] = dimension_note
+    log.info("generate_query kpi=%s mode=%s grain=%s window=%s..%s dim=%s -> %d result(s)%s",
+             kpi, mode, eff_grain, frm, to, eff_dim, len(results),
+             " [dim dropped]" if dimension_note else "")
     return out
 
 
@@ -514,11 +674,11 @@ async def run_query(
     execution failed — e.g. the connection is not configured). The generated
     ``sql`` / ``preview`` are kept for transparency.
     """
-    out = generate_query(kpi, period=period, from_date=from_date, to_date=to_date,
-                         as_of=as_of, mode=mode, dim=dim, grain=grain,
-                         filters=filters, comparison=comparison)
+    out = await generate_query(kpi, period=period, from_date=from_date, to_date=to_date,
+                               as_of=as_of, mode=mode, dim=dim, grain=grain,
+                               filters=filters, comparison=comparison)
 
-    source = get_catalog().get(kpi).get("source") or {}
+    source = ((await get_catalog().get(kpi)) or {}).get("source") or {}
     dialect = source.get("dialect", "postgres")
     connection = source.get("connection")
     out["source"] = {"connection": connection, "dialect": dialect,
@@ -670,12 +830,12 @@ async def module_overview(
 
     requested = _normalize_filters(filters)
     want_dims = [dim] if isinstance(dim, str) else list(dim or [])
-    names = catalog.by_module(code)
+    names = await catalog.by_module(code)
     if limit_kpis:
         names = names[:limit_kpis]
 
     async def _one(name: str) -> Dict[str, Any]:
-        cfg = catalog.get(name)
+        cfg = await catalog.get(name)
         # Resolve each requested term (alias or canonical) against THIS KPI; apply
         # the ones it supports, record the rest as dropped (never mis-applied).
         applied: Dict[str, Any] = {}
@@ -730,7 +890,9 @@ async def module_overview(
         for w in want_dims:
             rd = resolve_dim_word(cfg, w)
             if rd is None:                       # this KPI can't group by that word
-                _drop_dim(entry, want_dims)
+                _drop_dim(entry, want_dims,
+                          f"KPI {name!r} has no dimension matching {w!r}; "
+                          f"the requested breakdown was not applied.")
                 return
             resolved.append(rd)
 
@@ -754,33 +916,48 @@ async def module_overview(
             _drop_dim(entry, want_dims, str(exc))
 
     async def _sql_mode_breakdown(cfg, entry, want_dims, resolved, applied):
-        bd = (cfg.get("drilldown") or {}).get("breakdown") or {}
-        query = bd.get("query")
         dims_allowed = (cfg.get("drilldown") or {}).get("dimensions") or []
         win = entry.get("window") or {}
-        # The authored template exposes a single {dim} and no filter slot, so we can
-        # only honour ONE column (an approved drilldown dimension, or — schema
-        # fallback — any real column on the KPI's primary table, since the template
-        # groups by `a.{dim}` on that table), with no per-KPI filters, and we need a
-        # concrete window to fill {from_date}/{to_date}.
-        dim_ok = resolved and (resolved[0] in dims_allowed
-                               or resolved[0] in schema_columns_for(cfg))
-        if (not query or len(resolved) != 1 or not dim_ok
-                or applied or not (win.get("from") and win.get("to"))):
-            _drop_dim(entry, want_dims)
+        # The authored template exposes a single {dim} and no filter slot. We fold one
+        # OR MORE columns into a composite {dim} key (each must be a real column on the
+        # KPI's primary table, since the template groups by `a.{dim}`), but per-KPI
+        # filters can't be injected and we need a concrete window. Whenever we can't
+        # honour the request we record a PRECISE reason (surfaced) — never a silent drop.
+        schema_cols = set(schema_columns_for(cfg))
+        allowed_set = set(dims_allowed)
+        bad = [c for c in resolved
+               if c not in allowed_set and _dim_to_column(cfg, c) not in schema_cols]
+        inner_tmpl = _breakdown_inner_sql(cfg, resolved)
+        reason = None
+        if bad:
+            reason = (f"KPI {cfg.get('name')!r} cannot break down by {bad!r}; "
+                      f"allowed breakdown dimensions: {dims_allowed}.")
+        elif inner_tmpl is None:
+            reason = (f"KPI {cfg.get('name')!r} is SQL-mode and has no reusable breakdown "
+                      f"query for {resolved!r}, so it cannot be grouped by that dimension.")
+        elif applied:
+            reason = (f"KPI {cfg.get('name')!r} is SQL-mode; its authored breakdown "
+                      f"cannot also apply the filter(s) {sorted(applied)} — the "
+                      f"breakdown was skipped rather than returned unfiltered.")
+        elif not (win.get("from") and win.get("to")):
+            reason = (f"no resolved date window for the {cfg.get('name')!r} breakdown.")
+        if reason:
+            _drop_dim(entry, want_dims, reason)
             return
         # Snapshot-style breakdown templates use {as_of} (the window end) rather
         # than a from/to range — anchor it on the window end like driver_substitute.
         payload = {"from_date": win["from"], "to_date": win["to"], "as_of": win["to"]}
-        sql = gq.substitute_dates(query.replace("{dim}", resolved[0]), payload)
-        if "{" in sql:                    # an unfilled placeholder -> don't execute
-            _drop_dim(entry, want_dims)
+        inner = gq.substitute_dates(inner_tmpl, payload)
+        if "{" in inner:                  # an unfilled placeholder -> don't execute
+            _drop_dim(entry, want_dims,
+                      f"unfilled placeholder in the {cfg.get('name')!r} breakdown query")
             return
+        sql = "SELECT %s, _b.v AS v FROM (%s) _b" % (_grp_select(resolved), inner)
         source = cfg.get("source") or {}
         try:
             exec_out = await db.execute(source.get("dialect", "postgres"),
                                         source.get("connection"), sql, [], limit=100)
-            entry["dimension"] = resolved[0]
+            entry["dimension"] = resolved if len(resolved) > 1 else resolved[0]
             entry["breakdown"] = _breakdown_rows(resolved, exec_out.get("rows") or [])
         except db.DBError as exc:
             _drop_dim(entry, want_dims, str(exc))
@@ -823,7 +1000,7 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
 
     # Metric anchor: pull base table / measure expression / date field from config.
     if spec.metric:
-        cfg = get_catalog().get(spec.metric)
+        cfg = await get_catalog().get(spec.metric)
         if not cfg:
             raise QueryError(f"unknown metric {spec.metric!r}")
         pd = cfg.get("primary_dataset") or {}

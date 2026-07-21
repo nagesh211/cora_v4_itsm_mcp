@@ -1,35 +1,35 @@
-"""Loads and searches the KPI configs in ``config/*.json``.
+"""Loads and searches the KPI configs.
 
-Each config is a KPI definition consumed by ``gen_query.py``. This module
-indexes them by name and module and provides a lightweight token-overlap search
-over each KPI's name / title / natural-language synonyms / sample questions /
-tags, so a natural-language question can be routed to a KPI.
+Each config is a KPI definition consumed by ``gen_query.py``. This module exposes
+:class:`KpiCatalog` with a small, stable surface (``get``, ``search``, ``summary``,
+``by_module``, ``names``, ``configs_for_tables``) that the MCP layer relies on.
+
+The only backend is :class:`OpenSearchBackend`, which treats an OpenSearch index as
+the source of truth: BM25 ``search``, get-by-``_id`` for ``get``, term queries for
+``by_module`` / ``names`` / ``configs_for_tables``. **Stateless — no config is cached
+in RAM**, so a KPI added/edited in the index is live on the next request. OpenSearch
+must be configured and reachable (see :mod:`cora_mcp.opensearch_client`); there is no
+disk fallback.
 """
 from __future__ import annotations
 
-import glob
 import json
-import os
-import re
+import time
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
+from cora_mcp import opensearch_client as osc
 from cora_mcp.logging_config import get_logger
 
 log = get_logger(__name__)
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.normpath(os.path.join(_HERE, ".."))
-DEFAULT_CONFIG_DIR = os.path.join(_ROOT, "config")
 
-_TOKEN = re.compile(r"[a-z0-9]+")
-_STOP = {"the", "a", "an", "of", "for", "in", "on", "by", "to", "and", "or",
-         "is", "are", "what", "how", "our", "me", "show", "give", "get",
-         "this", "that", "with", "per", "at", "which"}
-
-
-def _tokens(text: str) -> List[str]:
-    return [t for t in _TOKEN.findall((text or "").lower()) if t not in _STOP]
+def _dump(obj) -> str:
+    """Compact JSON for logging an OpenSearch request body (never raises)."""
+    try:
+        return json.dumps(obj, default=str, separators=(",", ":"))
+    except Exception:  # pragma: no cover - defensive
+        return repr(obj)
 
 
 def _filter_alias_map(allowed: List[str]) -> Dict[str, List[str]]:
@@ -40,107 +40,148 @@ def _filter_alias_map(allowed: List[str]) -> Dict[str, List[str]]:
     return {k: reg.aliases_of(k) for k in (allowed or [])}
 
 
+def summary_from_config(cfg: dict) -> dict:
+    """Build the compact KPI summary the MCP tools return, from a full config dict."""
+    nl = cfg.get("nl") or {}
+    allowed = (cfg.get("filters") or {}).get("allowed", [])
+    return {
+        "name": cfg.get("name"),
+        "module": cfg.get("module"),
+        "title": cfg.get("title"),
+        "unit": cfg.get("unit"),
+        "execution_mode": cfg.get("execution_mode"),
+        "allowed_filters": allowed,
+        # Accepted user-facing aliases per filter, so a question can say
+        # "business"/"p&l" (-> sector) or "team" (-> assignment_group) and be
+        # resolved deterministically. Pass any of these as a `filters` key.
+        "filter_aliases": _filter_alias_map(allowed),
+        "drilldown_dimensions": (cfg.get("drilldown") or {}).get("dimensions", []),
+        "sample_questions": nl.get("sample_questions", []),
+    }
+
+
+# ===========================================================================
+# Backend
+# ===========================================================================
+class OpenSearchBackend:
+    """Stateless **async** OpenSearch-backed store. The OpenSearch index is the
+    single source of truth; any OpenSearch error propagates to the caller."""
+
+    def __init__(self, client, index: str):
+        self._client = client
+        self._index = index
+
+    # -- helpers -----------------------------------------------------------
+    async def _scan_names(self, query_body: dict, op: str) -> List[str]:
+        body = {**query_body, "_source": ["name"], "size": 1000}
+        log.info("executing on %s/opensearch [%s]: %s", self._index, op, _dump(body))
+        t0 = time.perf_counter()
+        resp = await self._client.search(index=self._index, body=body)
+        out = []
+        for h in resp.get("hits", {}).get("hits", []):
+            nm = (h.get("_source") or {}).get("name") or h.get("_id")
+            if nm:
+                out.append(nm)
+        log.info("executing on %s/opensearch [%s] -> %d name(s) %s in %.1fms",
+                 self._index, op, len(out), out, (time.perf_counter() - t0) * 1000)
+        return out
+
+    # -- API ---------------------------------------------------------------
+    async def get(self, name: str) -> Optional[dict]:
+        log.info("executing on %s/opensearch [GET]: id=%s", self._index, name)
+        t0 = time.perf_counter()
+        try:
+            resp = await self._client.get(index=self._index, id=name)
+        except Exception as exc:
+            # NotFoundError (unindexed KPI) or a transport error.
+            log.info("executing on %s/opensearch [GET] id=%s -> miss/error (%s)",
+                     self._index, name, exc)
+            return None
+        cfg = (resp.get("_source") or {}).get("config")
+        ms = (time.perf_counter() - t0) * 1000
+        if not cfg:
+            log.warning("executing on %s/opensearch [GET] id=%s -> doc has no 'config'",
+                        self._index, name)
+            return None
+        log.info("executing on %s/opensearch [GET] id=%s -> hit (title=%r) in %.1fms",
+                 self._index, name, cfg.get("title"), ms)
+        return cfg
+
+    async def names(self) -> List[str]:
+        return await self._scan_names({"query": {"match_all": {}}}, op="SCAN names")
+
+    async def by_module(self, module: str) -> List[str]:
+        return await self._scan_names({"query": {"term": {"module": module}}},
+                                      op="SCAN by_module")
+
+    async def configs_for_tables(self, fqns: List[str]) -> List[str]:
+        names = await self._scan_names({"query": {"terms": {"primary_table": list(fqns)}}},
+                                       op="SCAN configs_for_tables")
+        return sorted(set(names))
+
+    async def search_scored(self, query: str, module: Optional[str], limit: int) -> List[Tuple[dict, float]]:
+        if not (query or "").strip():
+            return []
+        mm = {"multi_match": {"query": query, "fields": osc.SEARCH_FIELDS,
+                              "type": "best_fields"}}
+        q = mm if not module else {"bool": {"must": [mm],
+                                            "filter": [{"term": {"module": module}}]}}
+        body = {"size": limit, "query": q, "_source": ["config"]}
+        log.info(f"OpenSearch executed query on {self._index}: {_dump(body)}")
+        t0 = time.perf_counter()
+        resp = await self._client.search(index=self._index, body=body)
+        out: List[Tuple[dict, float]] = []
+        for h in resp.get("hits", {}).get("hits", []):
+            cfg = (h.get("_source") or {}).get("config")
+            if cfg:
+                out.append((cfg, h.get("_score", 0.0)))
+        hits = [(c.get("name"), round(s, 3)) for c, s in out]
+        took_ms = (time.perf_counter() - t0) * 1000
+        log.info(f"OpenSearch query on {self._index} returned {len(out)} hit(s) {hits} in {took_ms:.1f}ms")
+        return out
+
+
+# ===========================================================================
+# Facade
+# ===========================================================================
 class KpiCatalog:
-    def __init__(self, config_dir: Optional[str] = None):
-        self.config_dir = config_dir or DEFAULT_CONFIG_DIR
-        log.info("loading KPI configs from: %s", self.config_dir)
-        self._by_name: Dict[str, dict] = {}
-        self._corpus: Dict[str, List[str]] = {}   # name -> token list
-        self._by_table: Dict[str, List[str]] = {}  # "schema.table" -> [kpi names]
-        self._load()
-        log.info("KPI catalog loaded: %d configs", len(self._by_name))
-
-    def _load(self) -> None:
-        for path in sorted(glob.glob(os.path.join(self.config_dir, "*.json"))):
-            try:
-                cfg = json.load(open(path, encoding="utf-8"))
-            except Exception as exc:  # pragma: no cover - defensive
-                log.warning("skipping unreadable config %s: %s", path, exc)
-                continue
-            name = cfg.get("name")
-            if not name:
-                continue
-            self._by_name[name] = cfg
-
-            nl = cfg.get("nl") or {}
-            gov = cfg.get("governance") or {}
-            parts = [name, cfg.get("title", ""), cfg.get("module", "")]
-            parts += nl.get("synonyms", []) or []
-            parts += nl.get("sample_questions", []) or []
-            parts += gov.get("tags", []) or []
-            self._corpus[name] = _tokens(" ".join(parts))
-
-            pd = cfg.get("primary_dataset") or {}
-            fqn = f"{pd.get('schema')}.{pd.get('table')}"
-            self._by_table.setdefault(fqn, []).append(name)
+    def __init__(self):
+        client = osc.get_client()
+        if client is None:
+            raise RuntimeError(
+                "OpenSearch is not available: set OPENSEARCH_URL (or OPENSEARCH_HOST) "
+                "and install 'opensearch-py[async]'. See .env.example."
+            )
+        self._backend = OpenSearchBackend(client, osc.index_name())
+        log.info("KpiCatalog backend: OpenSearch (index=%s)", osc.index_name())
 
     # ---- access ----------------------------------------------------------
-    def names(self) -> List[str]:
-        return list(self._by_name.keys())
+    async def names(self) -> List[str]:
+        return await self._backend.names()
 
-    def get(self, name: str) -> Optional[dict]:
-        return self._by_name.get(name)
+    async def get(self, name: str) -> Optional[dict]:
+        return await self._backend.get(name)
 
-    def exists(self, name: str) -> bool:
-        return name in self._by_name
+    async def exists(self, name: str) -> bool:
+        return (await self.get(name)) is not None
 
-    def summary(self, name: str) -> Optional[dict]:
-        cfg = self.get(name)
-        if not cfg:
-            return None
-        nl = cfg.get("nl") or {}
-        allowed = (cfg.get("filters") or {}).get("allowed", [])
-        return {
-            "name": name,
-            "module": cfg.get("module"),
-            "title": cfg.get("title"),
-            "unit": cfg.get("unit"),
-            "execution_mode": cfg.get("execution_mode"),
-            "allowed_filters": allowed,
-            # Accepted user-facing aliases per filter, so a question can say
-            # "business"/"p&l" (-> sector) or "team" (-> assignment_group) and be
-            # resolved deterministically. Pass any of these as a `filters` key.
-            "filter_aliases": _filter_alias_map(allowed),
-            "drilldown_dimensions": (cfg.get("drilldown") or {}).get("dimensions", []),
-            "sample_questions": nl.get("sample_questions", []),
-        }
+    async def summary(self, name: str) -> Optional[dict]:
+        cfg = await self.get(name)
+        return summary_from_config(cfg) if cfg else None
 
-    def by_module(self, module: str) -> List[str]:
-        return [n for n, c in self._by_name.items() if c.get("module") == module]
+    async def by_module(self, module: str) -> List[str]:
+        return await self._backend.by_module(module)
 
-    def configs_for_tables(self, fqns: List[str]) -> List[str]:
+    async def configs_for_tables(self, fqns: List[str]) -> List[str]:
         """KPI names whose primary dataset is one of the given schema.table names."""
-        out: List[str] = []
-        for fqn in fqns:
-            out.extend(self._by_table.get(fqn, []))
-        return sorted(set(out))
+        return await self._backend.configs_for_tables(fqns)
 
     # ---- search ----------------------------------------------------------
-    def search(self, query: str, module: Optional[str] = None, limit: int = 8) -> List[dict]:
-        q = _tokens(query)
-        if not q:
-            return []
-        qset = set(q)
-        ql = (query or "").lower()
-        scored = []
-        for name, corpus in self._corpus.items():
-            cfg = self._by_name[name]
-            if module and cfg.get("module") != module:
-                continue
-            cset = set(corpus)
-            overlap = len(qset & cset)
-            if overlap == 0 and name.replace("-", " ") not in ql:
-                continue
-            score = overlap
-            # Boosts for stronger signals.
-            if name.replace("-", " ") in ql or name in ql:
-                score += 5
-            title_tokens = set(_tokens(cfg.get("title", "")))
-            score += len(qset & title_tokens)  # title match counts double
-            scored.append((score, name))
-        scored.sort(key=lambda s: (-s[0], s[1]))
-        results = [self.summary(n) | {"score": sc} for sc, n in scored[:limit]]
-        log.debug("search %r (module=%s) -> %s", query, module, [r["name"] for r in results])
+    async def search(self, query: str, module: Optional[str] = None, limit: int = 8) -> List[dict]:
+        scored = await self._backend.search_scored(query, module, limit)
+        results = [summary_from_config(cfg) | {"score": sc} for cfg, sc in scored]
+        log.info("search %r (module=%s) -> %s", query, module,
+                 [(r["name"], r.get("score")) for r in results])
         return results
 
 

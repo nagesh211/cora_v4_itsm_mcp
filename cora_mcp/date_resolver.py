@@ -151,6 +151,7 @@ class TimeframeIntent(BaseModel):
     to_date: bool = False
     is_future: bool = False
     rest_of: bool = False
+    prior_to_date: bool = False   # pytd/pmtd/pqtd — same elapsed span, prior period
 
 
 class TimeframeNormalizer:
@@ -317,6 +318,35 @@ class TimeframeNormalizer:
                 g = intent.grain or "month"
                 include_current = bool(intent.include_current)
 
+                # ===== PRIOR PERIOD TO DATE (pytd/pmtd/pqtd/pwtd) =====
+                # Same number of elapsed units into the PREVIOUS period, so it is
+                # comparable to the current period-to-date (this is the window a
+                # "vs prior year to date" comparison means).
+                if getattr(intent, "prior_to_date", False):
+                    if g == "year":
+                        start = date(t.year - 1, 1, 1)
+                        end = date(t.year - 1, t.month,
+                                   min(t.day, last_day_of_month(t.year - 1, t.month).day))
+                        return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+                    if g == "month":
+                        pm = add_months(date(t.year, t.month, 1), -1)
+                        start = first_day_of_month(pm.year, pm.month)
+                        end = date(pm.year, pm.month,
+                                   min(t.day, last_day_of_month(pm.year, pm.month).day))
+                        return {"start_date": start.isoformat(), "end_date": end.isoformat()}
+                    if g == "quarter":
+                        q_start, _ = quarter_bounds(t, fiscal_start_month=1)
+                        days_into = (t - q_start).days
+                        pq_start, pq_end = previous_quarter_bounds(t, fiscal_start_month=1)
+                        end = min(pq_start + timedelta(days=days_into), pq_end)
+                        return {"start_date": pq_start.isoformat(), "end_date": end.isoformat()}
+                    if g == "week":
+                        ws, _ = week_bounds_for(t, self.week_starts_on)
+                        days_into = (t - ws).days
+                        pw_start = ws - timedelta(days=7)
+                        return {"start_date": pw_start.isoformat(),
+                                "end_date": (pw_start + timedelta(days=days_into)).isoformat()}
+
                 # ----- relative single/multi day handling -----
                 if g == "day":
                     parsed_start = self._try_parse_date(intent.start_expr.strip()) if intent.start_expr else None
@@ -439,8 +469,9 @@ class TimeframeNormalizer:
 # Deterministic extractor
 # ----------------------
 class DeterministicExtractor:
-    def __init__(self, fiscal_year_start_month: int = 4):
+    def __init__(self, fiscal_year_start_month: int = 4, today: Optional[date] = None):
         self.fy_start = fiscal_year_start_month
+        self.today = today or date.today()
 
     def extract(self, text: str) -> Optional[TimeframeIntent]:
         s = text.lower().strip()
@@ -487,13 +518,37 @@ class DeterministicExtractor:
         if m:
             return TimeframeIntent(kind="relative", grain=m.group(2), include_current=True, to_date=False, rest_of=True)
 
-        # To-date shorthands.
+        # Single-day anchors: today / yesterday / last day / N days ago.
+        m = re.search(r"\b(\d+)\s+days?\s+ago\b", s)
+        if m:
+            d = (self.today - timedelta(days=int(m.group(1)))).isoformat()
+            return TimeframeIntent(kind="relative", grain="day", start_expr=d, end_expr=d)
+        if re.search(r"\btoday\b", s):
+            return TimeframeIntent(kind="relative", grain="day", n=1, include_current=True)
+        if re.search(r"\b(yesterday|last day|previous day|prior day)\b", s):
+            return TimeframeIntent(kind="relative", grain="day", n=1, include_current=False)
+
+        # PRIOR PERIOD TO DATE (pytd/pmtd/pqtd/pwtd, "prior/last/previous <period>
+        # to date"). MUST precede the current to-date shorthands below: their
+        # "year to date"/"month to date" substrings would otherwise swallow the
+        # "prior" qualifier and silently answer the CURRENT period-to-date.
+        m = re.search(r"\bp([yqmw])td\b", s)
+        if m:
+            grain = {"y": "year", "q": "quarter", "m": "month", "w": "week"}[m.group(1)]
+            return TimeframeIntent(kind="relative", grain=grain, include_current=True, prior_to_date=True)
+        m = re.search(r"\b(?:prior|last|previous)\s+(year|quarter|month|week)[- ]to[- ]date\b", s)
+        if m:
+            return TimeframeIntent(kind="relative", grain=m.group(1), include_current=True, prior_to_date=True)
+
+        # To-date shorthands (current period).
         if re.search(r"\b(mtd|month[- ]to[- ]date|this month to date|current month to date|cmtd)\b", s):
             return TimeframeIntent(kind="relative", grain="month", include_current=True, to_date=True)
         if re.search(r"\b(qtd|quarter[- ]to[- ]date|this quarter to date|current quarter to date|cqtd)\b", s):
             return TimeframeIntent(kind="relative", grain="quarter", include_current=True, to_date=True)
         if re.search(r"\b(ytd|year[- ]to[- ]date|this year to date|current year to date|cytd)\b", s):
             return TimeframeIntent(kind="relative", grain="year", include_current=True, to_date=True)
+        if re.search(r"\b(wtd|week[- ]to[- ]date|this week to date|current week to date|cwtd)\b", s):
+            return TimeframeIntent(kind="relative", grain="week", include_current=True, to_date=True)
 
         # THIS <period>.
         m = re.search(r"\bthis\s+(month|quarter|year|week)\b", s)
@@ -530,7 +585,8 @@ class DeterministicExtractor:
             return TimeframeIntent(kind="relative", grain=m.group(1), n=1, include_current=False)
         if re.search(r"\bprevious\s+quarter\b", s):
             return TimeframeIntent(kind="relative", grain="quarter", n=1, include_current=False)
-        m = re.search(r"\blast\s+(\d+)\s+days\b", s)
+        # Rolling N days — accept last/past/previous and singular/plural "day(s)".
+        m = re.search(r"\b(?:last|past|previous)\s+(\d+)\s+days?\b", s)
         if m:
             return TimeframeIntent(kind="rolling", n=int(m.group(1)))
 
@@ -545,6 +601,26 @@ class DeterministicExtractor:
         m = re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[-/]?(\d{2})\b", s)
         if m:
             return TimeframeIntent(kind="absolute", start_expr=f"{m.group(1)} {m.group(2)}".strip())
+
+        # Half-year: "H1 2025", "H2 FY2025", "first/second half of 2025".
+        m = (re.search(r"\bh([12])\s*(?:of\s+)?(?:fy\s*)?(\d{4})\b", s)
+             or re.search(r"\b(first|second)\s+half\s+(?:of\s+)?(\d{4})\b", s))
+        if m:
+            year = int(m.group(2))
+            if m.group(1) in ("1", "first"):
+                start, end = date(year, 1, 1), date(year, 6, 30)
+            else:
+                start, end = date(year, 7, 1), date(year, 12, 31)
+            return TimeframeIntent(kind="absolute", start_expr=start.isoformat(),
+                                   end_expr=end.isoformat())
+        # Calendar quarter of a year: "Q3 2025", "Q1 of 2025".
+        m = re.search(r"\bq([1-4])\s*(?:of\s+)?(\d{4})\b", s)
+        if m:
+            qn, year = int(m.group(1)), int(m.group(2))
+            start = date(year, (qn - 1) * 3 + 1, 1)
+            end = add_months(start, 3) - timedelta(days=1)
+            return TimeframeIntent(kind="absolute", start_expr=start.isoformat(),
+                                   end_expr=end.isoformat())
 
         # Bare year.
         m = re.search(r"\b(20\d{2}|19\d{2})\b", s)
@@ -616,7 +692,7 @@ def resolve_dates(
     (the original agent's final default) and sets ``matched=False``.
     """
     today = today or date.today()
-    det = DeterministicExtractor(fiscal_year_start_month=fiscal_year_start_month)
+    det = DeterministicExtractor(fiscal_year_start_month=fiscal_year_start_month, today=today)
     norm = TimeframeNormalizer(
         today=today,
         fiscal_year_start_month=fiscal_year_start_month,

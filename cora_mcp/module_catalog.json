@@ -1,0 +1,1288 @@
+{
+  "_comment": "Module routing catalog. Regenerate with tools/build_module_catalog.py. aliases = curated module-level vocabulary (full/short forms), preserved across regenerations; metrics come from config/*.json (nl.synonyms etc.).",
+  "modules": {
+    "am": {
+      "code": "am",
+      "name": "Availability Management",
+      "aliases": [
+        "availability management",
+        "availability",
+        "avail",
+        "am",
+        "uptime",
+        "downtime",
+        "outage",
+        "outages",
+        "sla availability",
+        "service availability",
+        "system uptime"
+      ],
+      "metrics": [
+        {
+          "name": "availability-percentage",
+          "title": "Overall availability percentage",
+          "unit": "%",
+          "synonyms": [
+            "availability %",
+            "uptime percentage",
+            "service availability percent",
+            "overall uptime",
+            "system availability rate",
+            "percent uptime"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "avg-sla-resolution",
+          "title": "Avg SLA Resolution (hrs)",
+          "unit": "h",
+          "synonyms": [
+            "avg sla res time hrs",
+            "average sla resolution hours",
+            "mean sla resolution time",
+            "sla resolve time (hrs)",
+            "avg resolution time hours",
+            "average time to resolve sla"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "incident-count",
+          "title": "MI Count(Closed)",
+          "unit": "",
+          "synonyms": [
+            "mi closed count",
+            "closed mis count",
+            "number of closed mis",
+            "mi count closed",
+            "closed major incidents count",
+            "count of closed mis"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "mim-caused-by-change-count",
+          "title": "MIM Caused by Change Count",
+          "unit": "",
+          "synonyms": [
+            "mim incidents from changes",
+            "changes causing mim count",
+            "mim caused by change",
+            "mim due to change events",
+            "count of mim from change",
+            "mim incidents linked to change"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "mttr",
+          "title": "Mean Time to Recover (MTTR) in Hours",
+          "unit": "h",
+          "synonyms": [
+            "mttr hours",
+            "mean time to recover",
+            "mean time to repair hours",
+            "average recovery time",
+            "avg mttr",
+            "time to restore service hours"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "ola-response",
+          "title": "OLA Response %",
+          "unit": "%",
+          "synonyms": [
+            "ola response percentage",
+            "ola response rate",
+            "service level agreement response %",
+            "ola rsponse %",
+            "response compliance %",
+            "ola reply percent"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "resolve-hours",
+          "title": "Resolve Hours",
+          "unit": "h",
+          "synonyms": [
+            "resolution hours",
+            "time to resolve (hrs)",
+            "hours to close incidents",
+            "incident resolution time",
+            "mean time to resolve (hours)",
+            "resolve time in hours"
+          ],
+          "tags": [
+            "hours",
+            "count"
+          ]
+        },
+        {
+          "name": "resolved-incident-count",
+          "title": "Resolved Incident Count",
+          "unit": "",
+          "synonyms": [
+            "resolved incidents",
+            "incidents closed count",
+            "closed tickets count",
+            "resolved ticket volume",
+            "incident resolution number",
+            "number of fixes"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "sla-resolve",
+          "title": "SLA Resolve %",
+          "unit": "%",
+          "synonyms": [
+            "sla resolve percent",
+            "sla resolved rate",
+            "resolution sla %",
+            "percent of incidents resolved within sla",
+            "sla compliance (resolution)",
+            "sla resolve rate"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sla-response",
+          "title": "SLA Response %",
+          "unit": "%",
+          "synonyms": [
+            "sla response rate",
+            "sla response %",
+            "response sla percent",
+            "sla response time compliance",
+            "percent sla responses",
+            "sla reply rate"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        }
+      ]
+    },
+    "cm": {
+      "code": "cm",
+      "name": "Change Management",
+      "aliases": [
+        "change management",
+        "changes",
+        "change",
+        "chg",
+        "cm",
+        "cab",
+        "change advisory board",
+        "emergency change",
+        "normal change",
+        "standard change",
+        "expedite change",
+        "change failure",
+        "change type"
+      ],
+      "metrics": [
+        {
+          "name": "cm-major-incident",
+          "title": "Changes Causing Major Incidents",
+          "unit": "",
+          "synonyms": [
+            "major-incident-causing changes",
+            "changes causing major incidents",
+            "chg causing major incident",
+            "changes led to major outage",
+            "change-related major incidents",
+            "major incident from change"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "emergency",
+          "title": "Emergency Change Lead Time (days)",
+          "unit": "d",
+          "synonyms": [
+            "emergency change mttr days",
+            "emergency change leadtime",
+            "urgent change lead time",
+            "emergency change turnaround days",
+            "emergency change duration",
+            "urgent change processing time"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "emergency-percentage",
+          "title": "Emergency Change %",
+          "unit": "%",
+          "synonyms": [
+            "emergency change percentage",
+            "% emergency changes",
+            "emergency change rate",
+            "percent of emergency changes",
+            "rate of emergency changes",
+            "emergency change ratio"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "expedite",
+          "title": "Expedite Change Lead Time (days)",
+          "unit": "d",
+          "synonyms": [
+            "expedite change leadtime",
+            "expedite change cycle time",
+            "expedited change duration days",
+            "fast-track change lead time",
+            "accelerated change turnaround",
+            "expedite change days"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "expedite-percentage",
+          "title": "Expedite Change %",
+          "unit": "%",
+          "synonyms": [
+            "expedite change percent",
+            "% expedited changes",
+            "expedited change rate",
+            "percent of expedited changes",
+            "expedite change ratio",
+            "expedited change percentage"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "failure-rate",
+          "title": "Change Failure Rate %",
+          "unit": "%",
+          "synonyms": [
+            "change failure rate",
+            "cfr %",
+            "percent failed changes",
+            "failed change percentage",
+            "change rollback rate",
+            "percentage of failed deployments"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "normal",
+          "title": "Normal Change Lead Time (days)",
+          "unit": "d",
+          "synonyms": [
+            "normal change lead time days",
+            "avg normal change leadtime",
+            "normal change sla days",
+            "average lead time for normal changes",
+            "mean time to implement normal changes",
+            "normal change turnaround time (days)"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "normal-percentage",
+          "title": "Normal Change %",
+          "unit": "%",
+          "synonyms": [
+            "normal change percentage",
+            "% normal changes",
+            "normal change rate",
+            "percentage of normal changes",
+            "share of normal changes",
+            "normal change ratio"
+          ],
+          "tags": [
+            "percentage",
+            "ratio"
+          ]
+        },
+        {
+          "name": "standard",
+          "title": "Standard Change Lead Time (days)",
+          "unit": "d",
+          "synonyms": [
+            "standard change lead time",
+            "std change lead time",
+            "standard change cycle time",
+            "std change turnaround days",
+            "standard change duration days",
+            "avg lead time for standard changes"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "standard-percentage",
+          "title": "Standard Change %",
+          "unit": "%",
+          "synonyms": [
+            "standard change percent",
+            "% standard changes",
+            "std change rate",
+            "standard change ratio",
+            "percent standard change",
+            "standard change percentage"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "success-rate",
+          "title": "Change Success Rate %",
+          "unit": "%",
+          "synonyms": [
+            "change success rate",
+            "change success %",
+            "chg success rate",
+            "change implementation success",
+            "percent successful changes",
+            "change success ratio"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "total-volume",
+          "title": "Total Change Volume",
+          "unit": "",
+          "synonyms": [
+            "change count",
+            "total changes",
+            "number of changes",
+            "change volume",
+            "chg vol",
+            "total change requests"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    },
+    "em": {
+      "code": "em",
+      "name": "Event Management",
+      "aliases": [
+        "event management",
+        "events",
+        "event",
+        "em",
+        "alert",
+        "alerts",
+        "alerting",
+        "monitoring",
+        "critical alert",
+        "affected service"
+      ],
+      "metrics": [
+        {
+          "name": "em-affected-business-services",
+          "title": "Affected Business Services",
+          "unit": "",
+          "synonyms": [
+            "affected services count",
+            "impacted business services",
+            "business services affected",
+            "affected svc count",
+            "impacted services total",
+            "number of affected services"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "em-critical-alerts-active",
+          "title": "Critical Alerts Active",
+          "unit": "",
+          "synonyms": [
+            "critical alerts active count",
+            "active critical incidents",
+            "open critical alerts",
+            "number of active critical events",
+            "active sev 1 alerts",
+            "current critical alarms"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "em-critical-alerts-mttr",
+          "title": "Critical Alerts MTTR (hrs)",
+          "unit": "h",
+          "synonyms": [
+            "critical alerts mttr",
+            "mean time to repair critical alerts",
+            "critical alert mean time to recovery hrs",
+            "mttr for critical events",
+            "avg hours to resolve critical alerts",
+            "critical incident resolution time hrs"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "em-unassigned-critical-alerts",
+          "title": "Unassigned Critical Alerts",
+          "unit": "",
+          "synonyms": [
+            "unassigned critical alerts",
+            "critical alerts unassigned",
+            "critical unassigned incidents",
+            "unowned critical events",
+            "unassigned sev1 alerts",
+            "critical alerts without owner"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        }
+      ]
+    },
+    "im": {
+      "code": "im",
+      "name": "Incident Management",
+      "aliases": [
+        "incident management",
+        "incidents",
+        "incident",
+        "inc",
+        "im",
+        "ticket",
+        "tickets",
+        "outage",
+        "major incident",
+        "mim",
+        "mttr",
+        "resolution sla",
+        "response sla",
+        "priority"
+      ],
+      "metrics": [
+        {
+          "name": "im-avg-resolution-hours",
+          "title": "Avg Resolution Time (hrs)",
+          "unit": "h",
+          "synonyms": [
+            "avg res time hrs",
+            "mean resolution time",
+            "average time to resolve",
+            "avg time to close incident",
+            "mean incident resolution (hrs)",
+            "avg incident closure time"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "im-major-incidents",
+          "title": "Major Incidents Count",
+          "unit": "",
+          "synonyms": [
+            "major incident count",
+            "major incidents",
+            "critical incident count",
+            "sev 1 incident count",
+            "sev1 incidents",
+            "number of major incidents"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "im-resolve-percentage",
+          "title": "Resolution SLA %",
+          "unit": "%",
+          "synonyms": [
+            "resolution sla percent",
+            "sla compliance rate",
+            "incident resolution sla %",
+            "percent resolved within sla",
+            "sla resolution rate",
+            "on-time resolution percentage"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "im-response-percentage",
+          "title": "Response SLA %",
+          "unit": "%",
+          "synonyms": [
+            "response sla percentage",
+            "sla response %",
+            "incident response rate",
+            "percent incidents responded within sla",
+            "sla compliance for responses",
+            "incident response sla pct"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "im-sla-resolution-hours",
+          "title": "SLA Resolution Hours",
+          "unit": "h",
+          "synonyms": [
+            "sla resolution time",
+            "time to resolve incidents (hours)",
+            "incident resolution hours",
+            "resolution sla hours",
+            "mean time to resolve (hours)",
+            "avg resolution time hours"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "im-sla-response-hours",
+          "title": "SLA Response Hours",
+          "unit": "h",
+          "synonyms": [
+            "sla response time hours",
+            "response hours sla",
+            "incident response hours",
+            "sla resp hrs",
+            "response time (hours)",
+            "incident reply hours"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "im-sla-risk",
+          "title": "SLA At-Risk Count",
+          "unit": "",
+          "synonyms": [
+            "sla at risk incidents",
+            "at-risk sla count",
+            "incidents nearing sla breach",
+            "sla breach risk count",
+            "incidents at risk of missing sla",
+            "sla threshold warnings"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "im-total-opened",
+          "title": "Total Incidents Opened",
+          "unit": "",
+          "synonyms": [
+            "total incidents opened",
+            "incidents opened count",
+            "new incident volume",
+            "opened tickets",
+            "incidents created",
+            "new tickets opened"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "im-total-resolved",
+          "title": "Total Incidents Resolved",
+          "unit": "",
+          "synonyms": [
+            "incidents resolved",
+            "tickets closed",
+            "resolved tickets count",
+            "total resolved incidents",
+            "incident closure count",
+            "closed tickets total"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "im-total-resolved-v2",
+          "title": "Resolved (pending closure)",
+          "unit": "",
+          "synonyms": [
+            "resolved pending closure",
+            "resolved awaiting closure",
+            "resolved not closed",
+            "incidents pending closure",
+            "resolved but not closed count",
+            "resolved awaiting final close"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    },
+    "pm": {
+      "code": "pm",
+      "name": "Problem Management",
+      "aliases": [
+        "problem management",
+        "problems",
+        "problem",
+        "prb",
+        "pm",
+        "rca",
+        "root cause",
+        "root cause analysis",
+        "known error",
+        "major problem",
+        "problem duration"
+      ],
+      "metrics": [
+        {
+          "name": "pm-average-problem-duration",
+          "title": "Avg Problem Duration (days)",
+          "unit": "d",
+          "synonyms": [
+            "avg problem duration",
+            "average incident problem days",
+            "mean problem age (days)",
+            "avg problem lifecycle",
+            "avg time to resolve problems (days)",
+            "avg problem resolution time"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "pm-major-problem-average-rca-task-duration",
+          "title": "Major Problem Avg RCA-Task Duration (days)",
+          "unit": "d",
+          "synonyms": [
+            "major problem rca duration",
+            "avg rca task time days",
+            "mean rca task duration",
+            "major incident rca days",
+            "problem management rca avg",
+            "average root cause analysis time"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "pm-major-problem-count",
+          "title": "Major Problem Count",
+          "unit": "",
+          "synonyms": [
+            "major problem count",
+            "major incidents count",
+            "count of major problems",
+            "number of major problems",
+            "major problem total",
+            "major issue count"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "pm-open-problems",
+          "title": "Open Problems",
+          "unit": "",
+          "synonyms": [
+            "open problems count",
+            "active problem records",
+            "problem backlog",
+            "number of unresolved problems",
+            "open problem tickets",
+            "problem management open issues"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "pm-resolved",
+          "title": "Problems Resolved",
+          "unit": "",
+          "synonyms": [
+            "problems closed",
+            "resolved problems count",
+            "problem tickets resolved",
+            "number of problem resolutions",
+            "problems fixed",
+            "prob mgmt resolved"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "pm-total-count",
+          "title": "Total Problem Count",
+          "unit": "",
+          "synonyms": [
+            "total problem count",
+            "problem total",
+            "number of problems",
+            "problems count",
+            "total incidents/problems",
+            "problem mgmt count"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    },
+    "rm": {
+      "code": "rm",
+      "name": "Release Management",
+      "aliases": [
+        "release management",
+        "releases",
+        "release",
+        "rel",
+        "rm",
+        "deployment",
+        "deploy",
+        "rollout",
+        "release success",
+        "release failure"
+      ],
+      "metrics": [
+        {
+          "name": "rm-agile-methodology",
+          "title": "Agile Releases",
+          "unit": "",
+          "synonyms": [
+            "agile release count",
+            "number of agile deployments",
+            "sprint releases",
+            "agile deploys",
+            "releases per sprint",
+            "release management count"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "rm-cancelled-release",
+          "title": "Cancelled Release Rate",
+          "unit": "%",
+          "synonyms": [
+            "cancelled release rate",
+            "release cancellation rate",
+            "percent releases cancelled",
+            "release failure rate",
+            "cancelled deployments pct",
+            "release cancellation pct"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "rm-defect-rate",
+          "title": "Release Defect Rate",
+          "unit": "%",
+          "synonyms": [
+            "release defect rate",
+            "release defects %",
+            "defects per release",
+            "release bug rate",
+            "post-release defect rate",
+            "bugs in release percentage"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "rm-release-causing-major",
+          "title": "Release Causing Major Incident",
+          "unit": "",
+          "synonyms": [
+            "release causing major incident",
+            "major-incident releases",
+            "releases causing outages",
+            "deployments causing major incidents",
+            "release-related major incidents",
+            "major incident by release"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "rm-success-rate",
+          "title": "Release Success Rate",
+          "unit": "%",
+          "synonyms": [
+            "release success rate",
+            "deployment success %",
+            "release success %",
+            "deployment success rate",
+            "release completion rate",
+            "successful deployments percent"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "rm-waterfall-methodology",
+          "title": "Waterfall Releases",
+          "unit": "",
+          "synonyms": [
+            "waterfall release count",
+            "waterfall deployments",
+            "sequential release count",
+            "traditional release frequency",
+            "non-agile releases",
+            "release waterfall metric"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    },
+    "sd": {
+      "code": "sd",
+      "name": "Service Desk",
+      "aliases": [
+        "service desk",
+        "servicedesk",
+        "help desk",
+        "helpdesk",
+        "sd",
+        "call",
+        "calls",
+        "chat",
+        "chats",
+        "contact",
+        "abandonment",
+        "abandoned",
+        "asa",
+        "average speed of answer",
+        "call volume",
+        "first contact resolution",
+        "fcr"
+      ],
+      "metrics": [
+        {
+          "name": "sd-abn-percentage",
+          "title": "Call Abandonment Rate",
+          "unit": "%",
+          "synonyms": [
+            "call abandon rate",
+            "abandonment %",
+            "abandoned calls percent",
+            "calls dropped rate",
+            "call drop rate",
+            "percentage of abandoned calls"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sd-asa-percentage",
+          "title": "Service Level (ASA %)",
+          "unit": "%",
+          "synonyms": [
+            "asa percentage",
+            "average speed to answer %",
+            "service level asa",
+            "answer speed percentage",
+            "avg speed answer rate",
+            "service desk asa %"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sd-call-volume",
+          "title": "Call Volume",
+          "unit": "",
+          "synonyms": [
+            "call volume",
+            "incoming calls",
+            "number of calls",
+            "call count",
+            "call traffic",
+            "calls per period"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "sd-chat-volume",
+          "title": "Chat Volume",
+          "unit": "",
+          "synonyms": [
+            "chat tickets",
+            "live chat volume",
+            "number of chat requests",
+            "chat interactions count",
+            "chat session count",
+            "live support chats"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "sd-fcr-percentage",
+          "title": "First Contact Resolution",
+          "unit": "%",
+          "synonyms": [
+            "fcr rate",
+            "first contact fix",
+            "first-call resolution",
+            "first-touch resolution",
+            "first contact fix rate",
+            "first response resolution"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sd-nps-percentage",
+          "title": "Net Promoter Score",
+          "unit": "%",
+          "synonyms": [
+            "nps",
+            "net promoter",
+            "customer promoter score",
+            "promoter score percent",
+            "user loyalty score",
+            "customer recommend rate"
+          ],
+          "tags": [
+            "percentage",
+            "ratio"
+          ]
+        },
+        {
+          "name": "sd-quality-of-calls",
+          "title": "Quality of Calls",
+          "unit": "%",
+          "synonyms": [
+            "call quality",
+            "call handling quality",
+            "service desk call quality",
+            "quality of support calls",
+            "calls quality %",
+            "call quality score"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sd-ssp-volume",
+          "title": "SSP Volume",
+          "unit": "",
+          "synonyms": [
+            "ssr volume",
+            "ssr count",
+            "service support requests",
+            "support ticket volume",
+            "service support pieces",
+            "ssr incidents"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    },
+    "sr": {
+      "code": "sr",
+      "name": "Service Request",
+      "aliases": [
+        "service request",
+        "service requests",
+        "request",
+        "requests",
+        "sr",
+        "req",
+        "ritm",
+        "fulfillment",
+        "fulfilment",
+        "request sla",
+        "accuracy of estimate"
+      ],
+      "metrics": [
+        {
+          "name": "sr-accuracy-of-estimate",
+          "title": "Accuracy of Estimate",
+          "unit": "%",
+          "synonyms": [
+            "estimate accuracy",
+            "request estimate accuracy",
+            "percent estimate error",
+            "sr estimate accuracy",
+            "accuracy of effort estimate",
+            "estimate vs actual percent"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sr-avg-business-hours-duration",
+          "title": "Avg Business-Hours Duration",
+          "unit": "h",
+          "synonyms": [
+            "avg business-hours duration",
+            "average business hours time",
+            "mean business-hours handle time",
+            "avg biz-hours sr duration",
+            "business-hours turnaround time",
+            "avg business-hours resolution time"
+          ],
+          "tags": [
+            "hours",
+            "ratio"
+          ]
+        },
+        {
+          "name": "sr-closed-complete-count",
+          "title": "SR Closed Complete Count",
+          "unit": "",
+          "synonyms": [
+            "sr closed count",
+            "service request closed total",
+            "closed srs count",
+            "completed service requests",
+            "sr complete count",
+            "number of closed service requests"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "sr-estimate-4days-percentage",
+          "title": "Delivered within 4 Days %",
+          "unit": "%",
+          "synonyms": [
+            "% delivered within 4 days",
+            "delivered in 4 days pct",
+            "service requests <=4 days %",
+            "4-day delivery rate",
+            "percent resolved within four days",
+            "sr delivered within 4d %"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sr-incomplete",
+          "title": "Closed-Incomplete Rate",
+          "unit": "",
+          "synonyms": [
+            "closed incomplete count",
+            "incomplete closures",
+            "sr closed incomplete rate",
+            "closed-without-resolution count",
+            "service request incomplete closures",
+            "closed-incomplete sr metric"
+          ],
+          "tags": [
+            "count",
+            "sla"
+          ]
+        },
+        {
+          "name": "sr-met-to-estimate",
+          "title": "Met-to-Estimate %",
+          "unit": "%",
+          "synonyms": [
+            "met to estimate %",
+            "met-to-estimate percent",
+            "met vs estimate percentage",
+            "percent met to estimate",
+            "service request met-to-estimate",
+            "met vs estimated %"
+          ],
+          "tags": [
+            "percentage",
+            "ratio",
+            "sla"
+          ]
+        },
+        {
+          "name": "sr-mttf-days",
+          "title": "Mean Time to Fulfil (days)",
+          "unit": "d",
+          "synonyms": [
+            "mttf days",
+            "mean fulfil time",
+            "average time to fulfill requests",
+            "avg request fulfilment days",
+            "service request fulfilment time",
+            "days to complete service request"
+          ],
+          "tags": [
+            "days",
+            "ratio"
+          ]
+        },
+        {
+          "name": "sr-open-count",
+          "title": "SR Open Count",
+          "unit": "",
+          "synonyms": [
+            "open sr count",
+            "service request open count",
+            "sr backlog",
+            "open service requests",
+            "number of open srs",
+            "service request queue size"
+          ],
+          "tags": [
+            "count",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "sr-ritm-count",
+          "title": "RITM Count",
+          "unit": "",
+          "synonyms": [
+            "ritm ticket count",
+            "service request ritm total",
+            "request item count",
+            "ritm volume",
+            "service request count",
+            "number of ritms"
+          ],
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "name": "sr-ritm-count-opened",
+          "title": "RITM Count (Opened)",
+          "unit": "",
+          "synonyms": [
+            "ritm opened count",
+            "service request opened count",
+            "ritm volume",
+            "opened ritm total",
+            "new service request count",
+            "number of opened ritms"
+          ],
+          "tags": [
+            "count"
+          ]
+        }
+      ]
+    }
+  }
+}

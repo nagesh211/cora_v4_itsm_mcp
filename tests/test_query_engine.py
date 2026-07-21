@@ -13,7 +13,20 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import gen_query as gq  # noqa: E402
-from cora_mcp.query_engine import QueryError, generate_query  # noqa: E402
+from cora_mcp import query_engine as _qe  # noqa: E402
+from cora_mcp.query_engine import QueryError  # noqa: E402
+
+
+def _sync(v):
+    """Run an awaitable to completion. The query engine is async now; tests use the
+    sync file backend so each call resolves without real I/O, letting the sync test
+    bodies below stay unchanged."""
+    import asyncio
+    return asyncio.run(v) if asyncio.iscoroutine(v) else v
+
+
+def generate_query(*args, **kwargs):
+    return _sync(_qe.generate_query(*args, **kwargs))
 
 
 def test_unknown_kpi_raises():
@@ -332,7 +345,7 @@ def test_resolve_dim_word_falls_back_to_schema():
     # sr-accuracy-of-estimate does NOT declare contact_type in fields/drilldown,
     # but tbl_request_item has it -> resolvable via the schema fallback.
     import cora_mcp.query_engine as qe
-    cfg = qe.get_catalog().get("sr-accuracy-of-estimate")
+    cfg = _sync(qe.get_catalog().get("sr-accuracy-of-estimate"))
     assert "contact_type" not in (cfg.get("fields") or {})
     assert "contact_type" not in ((cfg.get("drilldown") or {}).get("dimensions") or [])
     assert qe.resolve_dim_word(cfg, "contact_type") == "contact_type"
@@ -343,7 +356,7 @@ def test_resolve_dim_word_falls_back_to_schema():
 def test_resolve_dim_via_schema_is_role_restricted():
     # Only dimension-role columns are offered as group-bys (not measures/ids).
     import cora_mcp.query_engine as qe
-    cfg = qe.get_catalog().get("sr-accuracy-of-estimate")
+    cfg = _sync(qe.get_catalog().get("sr-accuracy-of-estimate"))
     assert qe.resolve_dim_via_schema(cfg, "contact_type") == "contact_type"
     # request_item_id is an identifier, not a dimension -> not offered for group-by
     assert qe.resolve_dim_via_schema(cfg, "request_item_id", roles=("dimension",)) is None

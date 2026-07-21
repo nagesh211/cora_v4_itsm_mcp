@@ -15,11 +15,36 @@ if _ROOT not in sys.path:
 
 from cora_mcp.filter_aliases import AliasRegistry, get_registry, normalize  # noqa: E402
 from cora_mcp.kpi_catalog import get_catalog  # noqa: E402
+from cora_mcp import query_engine as _qe  # noqa: E402
 from cora_mcp.query_engine import (  # noqa: E402
-    QueryError, generate_query, resolve_filter_key, try_resolve_filter_key,
+    QueryError, resolve_filter_key, try_resolve_filter_key,
 )
 
-CAT = get_catalog()
+
+def _sync(v):
+    import asyncio
+    return asyncio.run(v) if asyncio.iscoroutine(v) else v
+
+
+def generate_query(*args, **kwargs):
+    return _sync(_qe.generate_query(*args, **kwargs))
+
+
+class _SyncCatalog:
+    """Sync wrapper so the existing sync test bodies keep calling CAT.get/summary/
+    search now that KpiCatalog is async (tests run on the file backend)."""
+
+    def __init__(self, cat):
+        self._cat = cat
+
+    def __getattr__(self, name):
+        attr = getattr(self._cat, name)
+        if callable(attr):
+            return lambda *a, **k: _sync(attr(*a, **k))
+        return attr
+
+
+CAT = _SyncCatalog(get_catalog())
 
 
 def test_registry_loads_without_alias_conflicts():

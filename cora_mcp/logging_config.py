@@ -85,6 +85,10 @@ def setup_logging(level: str | None = None) -> None:
         except OSError as exc:  # pragma: no cover - defensive
             root.warning("file logging disabled: %s", exc)
 
+    # Quiet opensearch-py's per-request INFO lines (one per HTTP call, e.g.
+    # ``POST .../_search [status:200 request:0.915s]``); keep warnings/errors.
+    logging.getLogger("opensearch").setLevel(logging.WARNING)
+
     _CONFIGURED = True
     root.debug("logging configured at level %s", lvl)
 

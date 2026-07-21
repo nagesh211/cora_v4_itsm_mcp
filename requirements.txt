@@ -6,6 +6,7 @@ pydantic>=2.5
 sqlglot>=25.0            # optional dialect transpile (gen_query degrades without it)
 python-dotenv>=1.0
 asyncpg>=0.30            # Postgres execution (dialect=postgres)
+opensearch-py[async]>=2.4  # KPI config index, async client (OPTIONAL; falls back to config/*.json if absent)
 
 # --- web chat UI (FastAPI) + LLM client ---
 fastapi>=0.110

@@ -642,6 +642,11 @@ def build_payload(config, mode, window, filter_by, dim, grain):
         field = tg.get("field") or (config.get("time") or {}).get("column")
         payload["time_group"] = {"field": field, "grain": grain or tg.get("grain")
                                  or "week", "alias": "bucket"}
+        # A per-dimension trend groups by the dimension AND the time bucket, so each
+        # (period, dimension) pair gets its own value. dsl_build already emits both
+        # when the payload carries group_by_dim alongside time_group.
+        if dim:
+            payload["group_by_dim"] = dim
     elif mode == "table":
         view = _find_view(config, "table") or {}
         payload["group_by_dim"] = dim or view.get("by")

@@ -65,7 +65,7 @@ from clients.state_store import get_store  # noqa: E402
 setup_logging()
 log = get_logger("cora_mcp.web_ui")
 
-CORA_MCP_URL = os.getenv("CORA_MCP_URL", "http://localhost:8032/mcp")
+CORA_MCP_URL = os.getenv("CORA_MCP_URL", "http://localhost:8029/mcp")
 WEB_HOST = os.getenv("CORA_WEB_HOST", "127.0.0.1")
 WEB_PORT = int(os.getenv("CORA_WEB_PORT", "8090"))
 HTML_PATH = Path(__file__).resolve().parent / "web" / "index.html"
@@ -87,27 +87,39 @@ _ANALYST_SYSTEM = (
     "1. Find the metric: call search_kpis with the question (don't pass `module` "
     "unless the user names a code am/cm/em/im/pm/rm/sd/sr).\n"
     "2. GOVERNED value: if a KPI clearly matches and the user wants that standard "
-    "metric, call run_kpi. Choose `mode` by the TIME WINDOW, not the wording:\n"
-    "   - MULTI-PERIOD window (covers more than one month — e.g. 'last 3 months', "
-    "'last 2 months', 'last quarter', 'this year', 'Jan to Jun'): you MUST use "
-    "mode='series' with grain='month' so EACH month returns its own value. Never "
-    "return a single blended number for a multi-month window. Use grain='quarter' "
-    "only if the user explicitly asks per quarter, grain='year' for multi-year.\n"
-    "   - SINGLE period (one month or a point in time — e.g. 'last month', 'this "
-    "month', a single named month, 'today'): use mode='stat'.\n"
-    "   - mode='table'+dim to break down by a dimension (region, service_area, …); "
-    "`dim` may be a single field OR a list to break down by several dimensions at "
-    "once (e.g. 'by region and priority' -> dim=['region_name','priority']). "
-    "add filters for constraints. Always pass the time phrase VERBATIM as `period`.\n"
+    "metric, call run_kpi. Choose `mode` by what the user wants:\n"
+    "   - TREND / OVER-TIME / 'trended' / 'month over month' / any multi-period "
+    "window ('last 3 months', 'last quarter', 'this year'): use mode='series'. Do "
+    "NOT set grain — the server derives it from the DURATION (weekly for ~a month, "
+    "monthly for several months, quarterly for multi-year), so 'trend for last "
+    "month' comes back WEEKLY automatically. Never return one blended number for a "
+    "trend.\n"
+    "   - A TREND BROKEN DOWN by a dimension ('nps trend by business', 'incidents "
+    "over time by region and priority'): STILL use mode='series' and ALSO pass "
+    "`dim` (a field or a list). Each period returns a value PER dimension group — "
+    "do NOT drop the breakdown and do NOT switch to mode='table' for a trend.\n"
+    "   - SINGLE snapshot value (no trend, one window — 'nps this month', 'today'): "
+    "use mode='stat'.\n"
+    "   - mode='table'+dim (NO time dimension) for a plain breakdown with no trend "
+    "('nps by business this quarter'). `dim` may be one field or a list.\n"
+    "   Always pass the time phrase VERBATIM as `period`.\n"
     "   NOTE: mode='stat' may apply the KPI's YTD comparison window and ignore a "
-    "custom range, so it is wrong for 'last N months' — use series there.\n"
-    "   NOTE: mode='table' (group-by a dimension) is NOT supported for SQL-mode "
-    "KPIs — use query_dataset for a breakdown of those.\n"
+    "custom range, so it is wrong for a trend — use series there.\n"
+    "   A series/breakdown by ONE or SEVERAL dimensions works for both DSL and "
+    "SQL-mode KPIs (pass dim as a list for several). If a SQL-mode KPI genuinely "
+    "can't honour it (e.g. combined with a filter), the server shows the overall "
+    "trend and says why — relay that.\n"
     "   FILTERS accept aliases: each KPI's `filter_aliases` (from describe_kpi/"
     "search_kpis) says what a word maps to — e.g. 'business'/'p&l'->sector, "
     "'sub business'/'division'->division, 'team'->assignment_group. Pass the user's "
     "word as the filter key; the server resolves it (or rejects it listing valid "
     "options). Do NOT invent a column.\n"
+    "   EXTRACT EVERY CONSTRAINT the user states as its own filter — do not apply "
+    "only one. 'nps for business finance AND region india' -> "
+    "filters={'business':'finance','region':'india'} (both). Multiple values for "
+    "the SAME field go in a list (region india+uk -> {'region':['india','uk']}). "
+    "If a KPI/tool reports dropped_filters or applied fewer than you sent, tell the "
+    "user which constraint was not applied.\n"
     "3. OVERVIEW / broad 'what's happening in <module> [for <sector/region>]': call "
     "overview_module with module (a code am/cm/em/im/pm/rm/sd/sr OR a phrase like "
     "'service desk'/'availability'), optional period, and filters {field:value}. It "
@@ -166,7 +178,24 @@ _SUMMARY_SYSTEM = (
     "linked to both a change and a problem; however there are 44 major incidents "
     "this month — 44 are linked to a problem, but 0 are linked to a change.' Read "
     "each diagnostics entry's `relaxed` label to see which restriction was lifted "
-    "for that count. If the result is an error, say so briefly."
+    "for that count. If the result is an error, say so briefly.\n"
+    "ALWAYS SURFACE ASSUMPTIONS the engine made (never hide them):\n"
+    "- If any result's `resolved_from_phrase.matched` is false, or a `date_window` "
+    "has matched=false, the time phrase was NOT understood and defaulted to "
+    "month-to-date — say e.g. 'I couldn’t interpret that period, so I used "
+    "month-to-date (Sep 1–Sep 15).'\n"
+    "- If a result lists `dropped_filters` (overview) the number is NOT filtered by "
+    "those terms — say which filter was not applied to which KPI.\n"
+    "- If a result lists `dropped_dimensions` / `dropped_dim` / `dimension_note` (or a "
+    "`breakdown_error`), the requested breakdown was reduced or skipped — say which "
+    "dimension was dropped and why (e.g. 'this metric supports only a single "
+    "breakdown dimension').\n"
+    "- If `applied_filters` shows fewer filters than the user asked for, note it.\n"
+    "TREND RESULTS (mode='series'): each result window is one time bucket (its "
+    "`label`/`grain` says week or month). Report the value PER period so the trend "
+    "is visible, and state the grain (e.g. 'weekly'). If the rows also carry a `grp` "
+    "column (a per-dimension trend, e.g. by business), report the trend for EACH "
+    "dimension group, not just an overall line."
 )
 
 _REPHRASE_SYSTEM = (
@@ -332,6 +361,24 @@ def _executed_queries(response) -> list[dict]:
             else:
                 out.append({"tool": name, "is_error": is_error, "result": payload})
     return out
+
+
+def _is_rejected_tool_entry(entry: dict) -> bool:
+    """True if a flattened tool entry is a guardrail rejection / error the
+    analyst recovered from (e.g. an unknown-column or no-join-path rejection).
+
+    These are useful in the server logs but are noise to the end user — the
+    agent retries and the final answer comes from the successful calls — so we
+    hide them from the ``executed_queries`` / ``tool_outputs`` SSE payloads."""
+    if entry.get("is_error"):
+        return True
+    # executed_queries stores an error string under "rows" when a query had no rows
+    if isinstance(entry.get("rows"), str):
+        return True
+    res = entry.get("result")
+    if isinstance(res, dict) and "error" in res and not res.get("rows") and not res.get("results"):
+        return True
+    return False
 
 
 async def _summarize(question: str, tool_outputs: list) -> str | None:
@@ -581,10 +628,15 @@ async def ask(req: AskRequest) -> StreamingResponse:
         yield _sse({"content": {"chat_message": chat_message}})
         # Clean view: executed query(ies) + raw rows only (no FunctionExecutionResult
         # wrappers). `tool_outputs` is kept for the existing UI table rendering.
-        if executed:
-            yield _sse({"content": {"executed_queries": executed}})
-        if parsed["tool_outputs"]:
-            yield _sse({"content": {"tool_outputs": parsed["tool_outputs"]}})
+        # Drop guardrail-rejected intermediate calls (unknown-column / no-join-path
+        # errors the analyst recovered from) so they don't surface as UI warnings;
+        # they remain in the server logs above.
+        ui_executed = [q for q in executed if not _is_rejected_tool_entry(q)]
+        ui_tool_outputs = [t for t in parsed["tool_outputs"] if not _is_rejected_tool_entry(t)]
+        if ui_executed:
+            yield _sse({"content": {"executed_queries": ui_executed}})
+        if ui_tool_outputs:
+            yield _sse({"content": {"tool_outputs": ui_tool_outputs}})
         yield _sse({"content": {"input_tokens": parsed["input_tokens"],
                                 "output_tokens": parsed["output_tokens"]}})
 
