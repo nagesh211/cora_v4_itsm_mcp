@@ -74,7 +74,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-optx-660cfb55f6436276e148a5727c
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://fluxlm.everestdx.com/llm-gw/api/v1/")
 
 _ANALYST_SYSTEM = (
-    "You are the everestdx ITSM analyst. Use the CORA MCP tools; NEVER invent SQL "
+    "You are the  ITSM analyst. Use the CORA MCP tools; NEVER invent SQL "
     "or data. Pass the user's time phrase VERBATIM as `period` (e.g. 'last quarter').\n\n"
     "Routing:\n"
     "0. SPECIFIC RECORD: if the question names a concrete record id (e.g. an "
