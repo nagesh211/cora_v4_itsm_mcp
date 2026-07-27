@@ -29,8 +29,8 @@ log = get_logger("cora_mcp.server")
 
 
 def build_server() -> tuple[FastMCP, int]:
-    host = os.getenv("CORA_MCP_HOST", "0.0.0.0")
-    port = int(os.getenv("CORA_MCP_PORT", "8081"))
+    host = os.getenv("CORA_MCP_HOST")
+    port = int(os.getenv("CORA_MCP_PORT"))
     mcp = FastMCP("cora", host=host, port=port)
     n = register_tools(mcp)
     return mcp, n
