@@ -225,12 +225,9 @@ def test_sql_mode_table_dimension_fails_loud():
         generate_query("availability-percentage", mode="table", dim="region")
 
 
-def test_module_overview_resolves_module_and_scopes_filters():
-    from cora_mcp.query_engine import resolve_module_code
-    assert resolve_module_code("service desk") == "sd"
-    assert resolve_module_code("availability") == "am"
-    assert resolve_module_code("sd") == "sd"
-    assert resolve_module_code("nonsense") is None
+# Module-code resolution moved to cora_mcp.module_registry, where it is derived
+# from the configured index rather than a hardcoded map (the codes differ per
+# deployment). Covered by tests/test_module_registry.py against both vocabularies.
 
 
 def test_resolve_dim_word_maps_alias_and_suffix():

@@ -30,7 +30,8 @@ from cora_mcp.adhoc import plan_query as _plan_query, preflight as _preflight
 from cora_mcp.date_resolver import resolve_dates as _resolve_dates
 from cora_mcp.kpi_catalog import get_catalog
 from cora_mcp.logging_config import get_logger
-from cora_mcp.module_router import detect_module
+from cora_mcp.module_registry import (detect_module, module_choices, refresh_modules,
+                                      routing_mode)
 from cora_mcp.query_engine import (
     QueryError,
     generate_query as _generate_query,
@@ -156,21 +157,47 @@ def _register_core(mcp) -> List[str]:
         _log_done("list_modules", t0, f"-> {len(out)} modules")
         return out
 
+    async def list_kpi_modules() -> List[Dict[str, Any]]:
+        """List the KPI module codes available in THIS deployment, with their
+        human label, KPI count and accepted aliases. The codes differ per
+        deployment — call this instead of assuming any fixed set. Pass a `code`
+        to search_kpis(module=...) or overview_module(module=...)."""
+        t0 = _log_call("list_kpi_modules")
+        out = await module_choices()
+        _log_done("list_kpi_modules", t0, f"-> {[m['code'] for m in out]}")
+        return out
+
+    async def refresh_kpi_modules() -> Dict[str, Any]:
+        """Reload the module vocabulary from OpenSearch immediately, instead of
+        waiting for the cache TTL. Use after indexing configs for a new module."""
+        t0 = _log_call("refresh_kpi_modules")
+        mods = await refresh_modules()
+        out = {"modules": sorted(mods), "count": len(mods)}
+        _log_done("refresh_kpi_modules", t0, f"-> {out['count']} module(s)")
+        return out
+
     async def search_kpis(query: str, module: Optional[str] = None) -> List[Dict[str, Any]]:
         """Find KPI configs matching a natural-language question, ranked by
-        relevance. Optionally restrict to a module code (am, cm, em, im, pm,
-        rm, sd, sr). Returns each KPI's name, title, unit, execution mode,
-        allowed filters and drilldown dimensions. Feed the chosen `name` to
+        relevance. Optionally restrict to a module code — the valid codes depend
+        on the deployment, so get them from list_kpi_modules rather than
+        guessing. Returns each KPI's name, title, unit, execution mode, allowed
+        filters and drilldown dimensions. Feed the chosen `name` to
         generate_query."""
         t0 = _log_call("search_kpis", query=query, module=module)
-        # When the caller didn't pin a module, infer one from the question and
-        # search within it for sharper results. Fall back to an unfiltered search
-        # if the guess yields nothing, so a misdetection can never hide a hit.
-        detected = detect_module(query) if module is None else None
+        # When the caller didn't pin a module, infer one from the question to
+        # sharpen ranking. Under the default CORA_MODULE_ROUTING=boost the guess
+        # only re-ranks — it can never exclude a KPI, which matters while configs
+        # carry two module vocabularies (legacy 'cm' vs pepops 'changes').
+        mode = routing_mode()
+        detected = (await detect_module(query)
+                    if (module is None and mode != "off") else None)
+        boost_only = detected is not None and mode == "boost"
         if detected:
-            log.info("search_kpis: routed %r -> module=%s", query, detected)
-        out = await catalog.search(query, module=module or detected)
-        if detected and not out:
+            log.info("search_kpis: routed %r -> module=%s (%s)", query, detected, mode)
+        out = await catalog.search(query, module=module or detected,
+                                   boost_only=boost_only)
+        if detected and not boost_only and not out:
+            # Hard-filter mode only: a misdetection must not hide every hit.
             log.info("search_kpis: module=%s filter empty; retrying unfiltered", detected)
             out = await catalog.search(query)
         _log_done("search_kpis", t0, f"-> {[r['name'] for r in out]}")
@@ -475,8 +502,9 @@ def _register_core(mcp) -> List[str]:
         Use this for broad questions like "what's happening in availability for
         the CGF sector" (module="availability", filters={"sector":"CGF"}) or
         "insights on the service desk for APAC" (module="service desk",
-        filters={"region":"APAC"}). `module` accepts a two-letter code
-        (am/cm/em/im/pm/rm/sd/sr) or a phrase ("service desk", "availability").
+        filters={"region":"APAC"}). `module` accepts a module code from
+        list_kpi_modules OR a phrase ("service desk", "availability") — the
+        valid codes depend on the deployment, so don't assume a fixed set.
         `period` is a natural-language window (e.g. "last quarter"); `filters` is
         a mapping of field -> value(s). Each filter is applied only to the KPIs
         that allow it — the rest record it under `dropped_filters`, never
@@ -546,6 +574,8 @@ def _register_core(mcp) -> List[str]:
     for fn, name in [
         (resolve_dates, "resolve_dates"),
         (list_modules, "list_modules"),
+        (list_kpi_modules, "list_kpi_modules"),
+        (refresh_kpi_modules, "refresh_kpi_modules"),
         (search_kpis, "search_kpis"),
         (describe_kpi, "describe_kpi"),
         (generate_query, "generate_query"),

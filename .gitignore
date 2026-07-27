@@ -37,3 +37,10 @@ build/
 ehthumbs.db
 Thumbs.db
 models/.model_config*.yaml
+
+# Deployment-specific operational scripts and seed data. Each site has its own
+# OpenSearch cluster, its own KPI configs and its own module vocabulary, so none
+# of this belongs in the repo — the server reads it all back from OpenSearch at
+# runtime (see cora_mcp/module_registry.py).
+load_module_meta.py
+module_meta/

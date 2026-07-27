@@ -14,6 +14,7 @@ disk fallback.
 from __future__ import annotations
 
 import json
+import os
 import time
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
@@ -22,6 +23,17 @@ from cora_mcp import opensearch_client as osc
 from cora_mcp.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _module_boost() -> float:
+    """How hard an *inferred* module tilts the ranking (see ``search_scored``).
+    Env-tunable so it can be adjusted without a redeploy."""
+    try:
+        return float(os.getenv("CORA_MODULE_BOOST", "4"))
+    except ValueError:
+        log.warning("CORA_MODULE_BOOST=%r is not a number; using 4",
+                    os.getenv("CORA_MODULE_BOOST"))
+        return 4.0
 
 
 def _dump(obj) -> str:
@@ -55,7 +67,9 @@ def summary_from_config(cfg: dict) -> dict:
         # "business"/"p&l" (-> sector) or "team" (-> assignment_group) and be
         # resolved deterministically. Pass any of these as a `filters` key.
         "filter_aliases": _filter_alias_map(allowed),
-        "drilldown_dimensions": (cfg.get("drilldown") or {}).get("dimensions", []),
+        # Reads drilldown.dimensions OR allowed_group_by, so legacy and pepops
+        # configs advertise their breakdown dimensions identically.
+        "drilldown_dimensions": osc.config_dimensions(cfg),
         "sample_questions": nl.get("sample_questions", []),
     }
 
@@ -119,13 +133,30 @@ class OpenSearchBackend:
                                        op="SCAN configs_for_tables")
         return sorted(set(names))
 
-    async def search_scored(self, query: str, module: Optional[str], limit: int) -> List[Tuple[dict, float]]:
+    async def search_scored(self, query: str, module: Optional[str], limit: int,
+                            boost_only: bool = False) -> List[Tuple[dict, float]]:
+        """BM25 over the config index, optionally scoped to a module.
+
+        ``boost_only`` distinguishes *how* the module was chosen:
+
+          * ``True``  — it was INFERRED from the question (module_registry). The
+            module becomes a ``should`` boost: its KPIs rank higher but nothing
+            is excluded, so a misdetection can only re-rank, never hide a hit.
+          * ``False`` — the caller PINNED it explicitly. Honour it as a hard
+            ``filter``; an explicit scope should mean what it says.
+        """
         if not (query or "").strip():
             return []
         mm = {"multi_match": {"query": query, "fields": osc.SEARCH_FIELDS,
                               "type": "best_fields"}}
-        q = mm if not module else {"bool": {"must": [mm],
-                                            "filter": [{"term": {"module": module}}]}}
+        if not module:
+            q = mm
+        elif boost_only:
+            q = {"bool": {"must": [mm],
+                          "should": [{"term": {"module": {"value": module,
+                                                          "boost": _module_boost()}}}]}}
+        else:
+            q = {"bool": {"must": [mm], "filter": [{"term": {"module": module}}]}}
         body = {"size": limit, "query": q, "_source": ["config"]}
         log.info(f"OpenSearch executed query on {self._index}: {_dump(body)}")
         t0 = time.perf_counter()
@@ -177,10 +208,15 @@ class KpiCatalog:
         return await self._backend.configs_for_tables(fqns)
 
     # ---- search ----------------------------------------------------------
-    async def search(self, query: str, module: Optional[str] = None, limit: int = 8) -> List[dict]:
-        scored = await self._backend.search_scored(query, module, limit)
+    async def search(self, query: str, module: Optional[str] = None, limit: int = 8,
+                     boost_only: bool = False) -> List[dict]:
+        """Ranked KPI summaries. Pass ``boost_only=True`` when ``module`` was
+        inferred rather than supplied by the caller (see ``search_scored``)."""
+        scored = await self._backend.search_scored(query, module, limit,
+                                                   boost_only=boost_only)
         results = [summary_from_config(cfg) | {"score": sc} for cfg, sc in scored]
-        log.info("search %r (module=%s) -> %s", query, module,
+        log.info("search %r (module=%s%s) -> %s", query, module,
+                 " boost" if boost_only else "",
                  [(r["name"], r.get("score")) for r in results])
         return results
 

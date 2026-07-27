@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from cora_mcp.logging_config import get_logger
@@ -142,6 +142,40 @@ SEARCH_FIELDS = [
 ]
 
 
+def config_dimensions(cfg: dict) -> List[str]:
+    """The dimensions a KPI can be broken down by, whichever shape declares them.
+
+    Two config shapes are in play and they name this differently:
+
+      * legacy ``config/*.json``  -> ``drilldown.dimensions: ["region_name", …]``
+      * pepops ``pepops/*.json``  -> ``allowed_group_by: [{"field": …,
+                                       "granularity": [...]?}, …]``
+
+    Reading only the first shape indexes ``drilldown_dims: []`` for every pepops
+    KPI, so nothing downstream (the MCP summary, dim resolution, group-by
+    validation) knows the KPI *can* be broken down. Entries carrying a
+    ``granularity`` list are time-grain date fields for ``mode="series"``
+    (``grain=day|week|month|quarter``), not breakdown dimensions, so they are
+    skipped — offering ``dim="closed_date"`` would group by a raw timestamp.
+    """
+    dims = list((cfg.get("drilldown") or {}).get("dimensions") or [])
+    if dims:
+        return dims
+    out: List[str] = []
+    for item in cfg.get("allowed_group_by") or []:
+        if isinstance(item, str):
+            field = item
+        elif isinstance(item, dict):
+            if item.get("granularity"):
+                continue                       # time-grain field, not a dimension
+            field = item.get("field")
+        else:
+            continue
+        if field and field not in out:
+            out.append(field)
+    return out
+
+
 def build_index_doc(cfg: dict) -> dict:
     """Project a KPI config into an index document: curated searchable fields plus
     the full config verbatim under ``config``. The ``_id`` is the KPI ``name``."""
@@ -154,7 +188,7 @@ def build_index_doc(cfg: dict) -> dict:
     samples = list(nl.get("sample_questions") or [])
     tags = list(gov.get("tags") or [])
     allowed = list((cfg.get("filters") or {}).get("allowed") or [])
-    dims = list((cfg.get("drilldown") or {}).get("dimensions") or [])
+    dims = config_dimensions(cfg)
     primary_table = None
     if pd.get("schema") and pd.get("table"):
         primary_table = f"{pd['schema']}.{pd['table']}"

@@ -80,7 +80,7 @@ async def main() -> None:
             "'team'->assignment_group, 'capability'->service_area. Pass the user's "
             "word as the filter key; the server resolves or rejects it. Don't guess a column.\n"
             "  2b. OVERVIEW ('what's happening in <module>' / 'insights on service desk "
-            "for APAC'): call overview_module with module (code am/cm/em/im/pm/rm/sd/sr "
+            "for APAC'): call overview_module with module (a code from list_kpi_modules "
             "or a phrase) + optional period/filters — a rollup of the module's KPIs. For "
             "'<module> overview by <dimension>' pass dim=<word> (or a list) so each KPI "
             "returns a per-dimension breakdown; don't improvise per-KPI run_kpi calls.\n"

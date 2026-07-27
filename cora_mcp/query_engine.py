@@ -32,10 +32,11 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Union
 
-from cora_mcp import db
+from cora_mcp import db, module_registry
 from cora_mcp.date_resolver import bucket_windows, resolve_dates
 from cora_mcp.kpi_catalog import get_catalog
 from cora_mcp.logging_config import get_logger
+from cora_mcp.opensearch_client import config_dimensions
 
 log = get_logger(__name__)
 
@@ -301,7 +302,7 @@ def resolve_dim_word(config: dict, word: str) -> Optional[str]:
     if not word:
         return None
     fields = config.get("fields") or {}
-    dims = (config.get("drilldown") or {}).get("dimensions", []) or []
+    dims = config_dimensions(config)
     w = str(word).strip()
     wl = w.lower()
     if w in fields:                                   # already a real field name
@@ -514,7 +515,7 @@ async def generate_query(
 
     eff_dim = _effective_dim(config, mode, dim)
     if mode == "table" and not eff_dim:
-        dims = (config.get("drilldown") or {}).get("dimensions", [])
+        dims = config_dimensions(config)
         raise QueryError(
             f"table mode needs a dimension for {kpi!r}; pass dim=<field>. "
             f"available: {dims}")
@@ -550,7 +551,7 @@ async def generate_query(
     if mode == "series" and eff_dim:
         dims_list = list(eff_dim) if isinstance(eff_dim, (list, tuple)) else [eff_dim]
         schema_cols = set(schema_columns_for(config))
-        dims_allowed = set((config.get("drilldown") or {}).get("dimensions") or [])
+        dims_allowed = set(config_dimensions(config))
         # A dim is groupable when its PHYSICAL column is a real column on the KPI's
         # primary table (or it's a declared drilldown dimension) — so "region"
         # (field -> region_name) counts, but "ci name" (no such column) does not.
@@ -703,38 +704,9 @@ async def run_query(
 # ---------------------------------------------------------------------------
 # Module overview  — a one-call rollup of a module's KPIs for a filter/period
 # ---------------------------------------------------------------------------
-# module code -> human label. KPIs carry these two-letter codes in cfg["module"].
-_MODULE_LABELS = {
-    "am": "Availability", "cm": "Change", "em": "Event Management",
-    "im": "Incident", "pm": "Problem", "rm": "Release",
-    "sd": "Service Desk", "sr": "Service Request",
-}
-# extra words a user might say for each module -> code
-_MODULE_SYNONYMS = {
-    "availability": "am", "uptime": "am",
-    "change": "cm", "changes": "cm",
-    "event": "em", "event management": "em", "alert": "em", "alerts": "em",
-    "incident": "im", "incidents": "im",
-    "problem": "pm", "problems": "pm",
-    "release": "rm", "releases": "rm", "deployment": "rm",
-    "service desk": "sd", "servicedesk": "sd", "helpdesk": "sd", "help desk": "sd",
-    "service request": "sr", "servicerequest": "sr", "request": "sr", "requests": "sr",
-}
-
-
-def resolve_module_code(module: str) -> Optional[str]:
-    """Map a code ('sd') or a phrase ('service desk', 'availability') -> code."""
-    if not module:
-        return None
-    m = module.strip().lower()
-    if m in _MODULE_LABELS:
-        return m
-    if m in _MODULE_SYNONYMS:
-        return _MODULE_SYNONYMS[m]
-    for phrase, code in _MODULE_SYNONYMS.items():   # loose contains match
-        if phrase in m:
-            return code
-    return None
+# Module codes and their human labels are NOT listed here: they differ per
+# deployment (one site's configs use "cm", another's use "changes") and are
+# derived from the configured index by cora_mcp.module_registry.
 
 
 def _scalar_value(rows: List[Dict[str, Any]]) -> Any:
@@ -822,11 +794,10 @@ async def module_overview(
     request under ``dropped_dim`` and keeps just its scalar value.
     """
     catalog = get_catalog()
-    code = resolve_module_code(module)
+    code = await module_registry.resolve_code(module)
     if not code:
         raise QueryError(
-            f"unknown module {module!r}. known: "
-            f"{sorted(set(_MODULE_LABELS) | set(_MODULE_SYNONYMS))}")
+            f"unknown module {module!r}. known: {await module_registry.known_codes()}")
 
     requested = _normalize_filters(filters)
     want_dims = [dim] if isinstance(dim, str) else list(dim or [])
@@ -916,7 +887,7 @@ async def module_overview(
             _drop_dim(entry, want_dims, str(exc))
 
     async def _sql_mode_breakdown(cfg, entry, want_dims, resolved, applied):
-        dims_allowed = (cfg.get("drilldown") or {}).get("dimensions") or []
+        dims_allowed = config_dimensions(cfg)
         win = entry.get("window") or {}
         # The authored template exposes a single {dim} and no filter slot. We fold one
         # OR MORE columns into a composite {dim} key (each must be a real column on the
@@ -973,9 +944,11 @@ async def module_overview(
                     "start_date": r["start_date"], "end_date": r["end_date"]}
     log.info("module_overview module=%s code=%s kpis=%d filters=%s",
              module, code, len(metrics), requested or None)
+    known = await module_registry.get_modules()
+    info = known.get(code)
     return {
         "module": code,
-        "module_label": _MODULE_LABELS.get(code, code),
+        "module_label": info.label if info else code,
         "period": resolved,
         "requested_filters": requested or None,
         "kpi_count": len(metrics),

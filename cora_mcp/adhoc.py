@@ -83,8 +83,10 @@ def _identify_entities(question: str, module: Optional[str],
 
     # module hint boosts its entities
     if module:
-        from cora_mcp.query_engine import resolve_module_code
-        code = resolve_module_code(module)
+        # Sync context and this is only a +3 scoring hint, so use the cached
+        # registry snapshot: a cold cache yields None and simply skips the boost.
+        from cora_mcp.module_registry import resolve_code_sync
+        code = resolve_code_sync(module)
         for _m, slug, entity in loader.all_entities():
             if code and (slug.startswith(f"itsm_{code}") or (entity.get("name") or "").lower().startswith(code)):
                 s = scores.setdefault(slug, {"slug": slug, "score": 0, "why": []})
