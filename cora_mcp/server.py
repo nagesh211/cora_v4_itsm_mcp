@@ -28,17 +28,17 @@ load_dotenv(_PROJECT_ROOT / ".env", override=False)
 log = get_logger("cora_mcp.server")
 
 
-def build_server() -> tuple[FastMCP, int]:
-    host = os.getenv("CORA_MCP_HOST")
-    port = int(os.getenv("CORA_MCP_PORT"))
+def build_server(host: str | None = None, port: int | None = None) -> tuple[FastMCP, int]:
+    host = host or os.getenv("CORA_MCP_HOST", "0.0.0.0")
+    port = int(port or os.getenv("CORA_MCP_PORT", "8081"))
     mcp = FastMCP("cora", host=host, port=port)
     n = register_tools(mcp)
     return mcp, n
 
 
-def main() -> None:
+def main(host: str | None = None, port: int | None = None) -> None:
     setup_logging()
-    mcp, n = build_server()
+    mcp, n = build_server(host, port)
     log.info("CORA MCP starting: %d tools on http://%s:%s%s",
              n, mcp.settings.host, mcp.settings.port, mcp.settings.streamable_http_path)
     mcp.run(transport="streamable-http")
