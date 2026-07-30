@@ -32,7 +32,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Union
 
-from cora_mcp import db, module_registry
+from cora_mcp import db, module_registry, sql_alias
 from cora_mcp.date_resolver import bucket_windows, resolve_dates
 from cora_mcp.kpi_catalog import get_catalog
 from cora_mcp.logging_config import get_logger
@@ -500,13 +500,22 @@ async def generate_query(
 
     # ---- resolve the date window ----------------------------------------
     resolved_from_phrase = None
+    cmp_pair: Optional[Dict[str, Dict[str, Any]]] = None
     if from_date and to_date:
         frm, to = from_date, to_date
     elif period:
         r = resolve_dates(period)
         frm, to = r["start_date"], r["end_date"]
+        # A two-sided phrase ("last quarter vs current quarter") carries BOTH
+        # windows; every mode below then runs once per side instead of collapsing
+        # the question onto whichever side the phrase scanner matched first.
+        cmp_pair = r.get("comparison")
         resolved_from_phrase = {"phrase": period, "matched": r["matched"],
                                 "start_date": frm, "end_date": to}
+        if cmp_pair:
+            resolved_from_phrase["comparison"] = {
+                side: {k: w[k] for k in ("phrase", "start_date", "end_date")}
+                for side, w in cmp_pair.items()}
     else:
         frm, to = gq.DEF_FROM, gq.DEF_TO
     # Did the caller name a concrete window? If so, stat mode honours it literally
@@ -514,11 +523,20 @@ async def generate_query(
     explicit_window = bool((from_date and to_date) or period)
 
     eff_dim = _effective_dim(config, mode, dim)
+    mode_note: Optional[str] = None
     if mode == "table" and not eff_dim:
-        dims = config_dimensions(config)
-        raise QueryError(
-            f"table mode needs a dimension for {kpi!r}; pass dim=<field>. "
-            f"available: {dims}")
+        if cmp_pair:
+            # A period comparison IS the grouping: one value per compared window.
+            # Better than rejecting the request for want of a dimension the caller
+            # never asked for.
+            mode_note = ("no breakdown dimension was given, so the two compared "
+                         "periods are the grouping (one value per period).")
+            mode = "stat"
+        else:
+            dims = config_dimensions(config)
+            raise QueryError(
+                f"table mode needs a dimension for {kpi!r}; pass dim=<field>. "
+                f"available: {dims}")
 
     filter_by = _resolve_filters(config, _normalize_filters(filters))
     # Schema fallback: a dimension/filter the config didn't declare but that the
@@ -530,13 +548,23 @@ async def generate_query(
     config = _augment_fields(config, [*dim_names, *filter_by.keys()])
     _validate_filters(config, filter_by)
     filter_by = _resolve_filter_values(config, filter_by)
+    # A SQL-mode KPI inlines filters at its authored {filters} slot using each
+    # field's bare column name. When the authored query joins tables that share
+    # that column, the bare reference is ambiguous and Postgres rejects the whole
+    # query — so qualify it with the alias the authored query bound.
+    config = sql_alias.qualify_filter_columns(config, list(filter_by))
 
     # ---- build the request windows (mirrors gen_query.main) --------------
     is_sql = config.get("execution_mode") != "DSL"
     # Trend grain follows the duration (weekly for ~a month, monthly for longer),
     # so "trend for last month" buckets by week and "trend for last 6 months" by
     # month — no matter what grain the caller guessed.
-    eff_grain = _auto_grain(frm, to, grain) if mode == "series" else grain
+    # For a comparison the span is BOTH sides (previous.start .. current.end), so a
+    # quarter-vs-quarter trend buckets monthly rather than into ~19 weekly windows
+    # picked from the shorter side alone.
+    span = ((cmp_pair["previous"]["start_date"], cmp_pair["current"]["end_date"])
+            if cmp_pair else (frm, to))
+    eff_grain = _auto_grain(span[0], span[1], grain) if mode == "series" else grain
 
     # A trend broken down by one or more dimensions. Keep only the dimensions this
     # KPI can actually group by — a declared drilldown dim, a real column on its
@@ -581,8 +609,36 @@ async def generate_query(
                 dimension_note = ("broke the trend down by %s; %s not available on this "
                                   "metric." % (valid, invalid))
 
+    side_of_label: Dict[str, str] = {}   # result label -> "previous" | "current"
+
+    def _windows_for(wfrm: str, wto: str, side: Optional[str] = None):
+        """The (label, window) list for ONE date range, honouring the mode.
+
+        SQL-mode series still expands into per-bucket runs (an authored scalar
+        query can't GROUP BY a time bucket); every other mode is a single window.
+        ``side`` tags the label with the phrase it came from, so a comparison's
+        rows are self-describing ("2026-04 (last quarter)")."""
+        if mode == "series" and is_sql:
+            return [("%s %s%s" % (eff_grain, blabel, " (%s)" % side if side else ""),
+                     (gq._start(bf), gq._end(bt)))
+                    for blabel, (bf, bt) in bucket_windows(wfrm, wto, eff_grain)]
+        return [(side or "%s window" % mode, (gq._start(wfrm), gq._end(wto)))]
+
     if as_of:
         windows = [("as-of %s" % as_of, (None, gq._end(as_of)))]
+    elif cmp_pair:
+        # Period-over-period comparison: run the SAME request once per side, older
+        # first, each labelled with the user's own phrase for it. The KPI's own
+        # CYTD/PYTD basis and the `comparison` flag's previous-year window are NOT
+        # applied on top — the phrase already named both windows.
+        windows = []
+        for side in ("previous", "current"):
+            w = cmp_pair[side]
+            side_windows = _windows_for(w["start_date"], w["end_date"],
+                                        (w.get("phrase") or side).strip())
+            for lbl, _win in side_windows:
+                side_of_label[lbl] = side
+            windows += side_windows
     elif mode == "stat" and explicit_window:
         # The user named a period (e.g. "last quarter") -> use THAT window as-is.
         # resolve_comparison would expand a YTD-basis KPI to Jan-1..anchor (CYTD),
@@ -624,14 +680,17 @@ async def generate_query(
                 # slot). Surface these as clean QueryErrors, not unhandled 500s.
                 raise QueryError(str(exc)) from exc
         cf, ct = win
-        results.append({
+        entry = {
             "label": label,
             "window": {"from": cf, "to": ct},
             "sql": sql,
             "params": [_jsonable(p) for p in params],   # JSON-safe (display)
             "_exec_params": params,                      # raw (tuples preserved) for execution
             "preview": gq.inline_preview(sql, params),
-        })
+        }
+        if label in side_of_label:
+            entry["comparison_side"] = side_of_label[label]
+        results.append(entry)
 
     out = {
         "kpi": kpi,
@@ -649,9 +708,14 @@ async def generate_query(
     if dimension_note:                        # a requested breakdown couldn't be honoured
         out["dropped_dim"] = dim
         out["dimension_note"] = dimension_note
-    log.info("generate_query kpi=%s mode=%s grain=%s window=%s..%s dim=%s -> %d result(s)%s",
+    if mode_note:
+        out["mode_note"] = mode_note
+    if cmp_pair:
+        out["comparison_windows"] = resolved_from_phrase["comparison"]
+    log.info("generate_query kpi=%s mode=%s grain=%s window=%s..%s dim=%s -> %d result(s)%s%s",
              kpi, mode, eff_grain, frm, to, eff_dim, len(results),
-             " [dim dropped]" if dimension_note else "")
+             " [dim dropped]" if dimension_note else "",
+             " [period comparison]" if cmp_pair else "")
     return out
 
 
@@ -697,8 +761,49 @@ async def run_query(
             log.warning("run_query execution error for %s: %s", kpi, exc)
             res["error"] = str(exc)
             res["error_type"] = type(exc).__name__
+    if out.get("comparison_windows"):
+        summary = _comparison_summary(out)
+        if summary:
+            out["comparison_summary"] = summary
     log.info("run_query kpi=%s mode=%s -> executed %d window(s)", kpi, mode, len(out["results"]))
     return out
+
+
+def _comparison_summary(out: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Delta between the two sides of a period comparison, computed once here so
+    every caller reports the SAME number instead of re-deriving it from the rows.
+
+    Only for ``stat`` mode, where each side is exactly ONE scalar window. A series
+    comparison (many buckets per side) and a dimensional breakdown are deliberately
+    left alone: adding up buckets would be wrong for a percentage/average metric and
+    picking one group would be wrong for a breakdown. Also ``None`` when either side
+    errored or isn't numeric — better no delta than a delta against a missing half.
+    """
+    if out.get("mode") != "stat":
+        return None
+    windows = out.get("comparison_windows") or {}
+    totals: Dict[str, float] = {}
+    for side in ("previous", "current"):
+        sides = [r for r in (out.get("results") or [])
+                 if r.get("comparison_side") == side and not r.get("error")]
+        if len(sides) != 1:
+            return None
+        value = _scalar_value(sides[0].get("rows") or [])
+        try:
+            totals[side] = float(value)
+        except (TypeError, ValueError):
+            return None
+
+    prev, cur = totals["previous"], totals["current"]
+    summary: Dict[str, Any] = {
+        "previous": {**windows.get("previous", {}), "value": round(prev, 4)},
+        "current": {**windows.get("current", {}), "value": round(cur, 4)},
+        "delta": round(cur - prev, 4),
+    }
+    if prev:
+        summary["pct_change"] = round((cur - prev) / abs(prev) * 100, 2)
+    summary["direction"] = ("up" if cur > prev else "down" if cur < prev else "flat")
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1111,14 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
         "params": [_jsonable(p) for p in built.params],
         "preview": gq.inline_preview(built.sql, built.params),
     }
+    if built.implicit_grain:
+        # A comparison period grouped the rows by period even though the caller
+        # didn't pass a grain — say so instead of returning unexplained buckets.
+        result["implicit_grain"] = built.implicit_grain
+        result["grouping_note"] = (
+            "the period is a comparison, so rows are grouped per %s (one row per "
+            "compared period) — see date_window.comparison for both windows."
+            % built.implicit_grain)
     if built.dropped_dimensions:
         # Dimensions the schema didn't recognise were dropped; the query ran
         # ungrouped. Surface it so the answer can say so instead of pretending.

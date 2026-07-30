@@ -171,7 +171,7 @@ python -m pip install -r requirements.txt      # into your venv
 
 ```bash
 cp .env.example .env      # then fill in:
-#   CORA_DB_VTX5=postgresql://user:pass@host:5432/dbname   # to execute queries
+#   CORA_PG_DSN=postgresql://user:pass@host:5432/dbname    # to execute queries
 #   OPENAI_API_KEY / OPENAI_BASE_URL / CORA_LLM_MODEL      # for the agent
 ```
 
@@ -208,8 +208,8 @@ python clients/web_ui.py            # open http://127.0.0.1:8090
 python clients/autogen_client.py
 ```
 
-Live DB tests in `tests/test_db_exec.py` run automatically once `CORA_DB_VTX5`
-(or `CORA_PG_DSN`) is set; otherwise they are skipped.
+Live DB tests in `tests/test_db_exec.py` run automatically once `CORA_PG_DSN`
+is set; otherwise they are skipped.
 
 ## Notes on semantics
 
@@ -218,12 +218,42 @@ Live DB tests in `tests/test_db_exec.py` run automatically once `CORA_DB_VTX5`
   `serve_kpi`. `series` and `table` use the literal resolved window. Pass a
   natural-language `period` (resolved by `resolve_dates`) *or* explicit
   `from_date`/`to_date`.
+- **Period comparisons.** A two-sided time phrase — "last quarter vs current
+  quarter", "last month compared to this month", "previous week vs current week" —
+  is resolved into **both** windows (`cora_mcp/date_resolver.py`:
+  `resolve_comparison`). Pass the whole phrase as `period` in ONE `run_kpi` call:
+  the request runs once per side, older first, each result labelled with the user's
+  own words and tagged `comparison_side` (`previous` / `current`), plus a
+  `comparison_windows` block and — in `stat` mode — a ready-made
+  `comparison_summary` (`previous`, `current`, `delta`, `pct_change`, `direction`).
+  `comparison=True` is a *different* request (the prior-**year** window) and is not
+  applied on top. `table` mode with no dimension is answered per period rather than
+  rejected, and `query_dataset` matches both windows (OR'd, so disjoint sides never
+  drag in the periods between) and groups by the compared period automatically.
+  "current"/"previous" are synonyms of "this"/"last" for every grain, and `qtr` /
+  `mo` / `wk` / `yr` abbreviations resolve.
 - **Both execution modes.** DSL configs compile through the structured builder;
   SQL configs get the window substituted into their authored `base_query`.
   `generate_query` / `run_kpi` handle both transparently.
+- **Qualified filter columns.** A SQL config inlines filters at its `{filters}`
+  slot using `fields[*].column`. Where that column is bare and the authored query
+  joins tables that share it, Postgres fails the whole query with *column
+  reference … is ambiguous*. `cora_mcp/sql_alias.py` reads the authored `FROM`/
+  `JOIN` aliases and rewrites the column to `<alias>.<column>` — the same form the
+  hand-written configs use — carrying the declared type across so the type-aware
+  `lower()` handling is unchanged. It only rewrites what `schema_v3.yaml` can
+  prove: single-table queries and columns the schema can't attribute are left
+  exactly as they were.
+- **Follow-up context.** Each turn's data access (tool, metric/entity, applied
+  filters, resolved window, dimension, row count, returned record ids / group
+  labels) is stored per `request_uuid` and replayed into the next turn's rephrase
+  as a `<last_result>` block, so "show me details for those incidents" is rewritten
+  against facts — the ids and the previous filters/period — instead of the prose
+  summary alone.
 - **Execution.** `run_kpi` executes the generated SQL via asyncpg against the
-  DSN resolved from the config's `source.connection` (all KPIs use `vtx5` →
-  `CORA_DB_VTX5`). gen_query's psycopg-style `%s` params (tuples for `IN`, lists
+  single DSN in `CORA_PG_DSN`. A config's `source.connection` (`vtx5`, `pepops`,
+  ...) is a label only and does not select a database. gen_query's
+  psycopg-style `%s` params (tuples for `IN`, lists
   for `ANY`/`&&`) are converted to asyncpg `$n` bind params in `db.to_asyncpg`.
   Because gen_query (built for psycopg2) passes literals as strings while asyncpg
   binds by exact type, `db.execute` prepares the statement, reads each

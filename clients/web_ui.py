@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 import uuid as uuidlib
@@ -70,6 +71,36 @@ WEB_HOST = os.getenv("CORA_WEB_HOST", "127.0.0.1")
 WEB_PORT = int(os.getenv("CORA_WEB_PORT", "8090"))
 HTML_PATH = Path(__file__).resolve().parent / "web" / "index.html"
 
+
+
+def build_mcp_agent_task(rephrased_question: str, intent_json: dict, flow_path: str = "") -> str:
+    """Attach the intent agent's pre-extracted fields to a module-MCP agent task.
+
+    The module MCP agents (itsm / assets / optix) pick their own tools, so these are
+    passed as HINTS, not commands — the agent still resolves the real dataset slug,
+    column names and filter keys through the MCP schema tools. Empty / `_unknown`
+    fields are dropped so the agent is never handed a placeholder to work with.
+    """
+    hint_fields = (
+        ('module', intent_json.get('module')),
+        ('dataset', intent_json.get('dataset')),
+        ('period', intent_json.get('duration')),
+        ('filters', intent_json.get('filters')),
+        ('group_by', intent_json.get('group_by')),
+        ('order_by', intent_json.get('order_by')),
+        ('limit', intent_json.get('limit')),
+        ('granularity', intent_json.get('granularity_type')),
+        ('data_intent', flow_path or ('data_intent')),
+    )
+    hints = [f"{key}: {value}" for key, value in hint_fields
+             if value not in (None, '', '_unknown', 'None', 'null')]
+    if not hints:
+        return rephrased_question
+    hint_block = "\n".join(hints)
+    return f"{rephrased_question}\n\n<intent_hints>\n{hint_block}\n</intent_hints>"
+
+
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-optx-660cfb55f6436276e148a5727cdc67865115917581c2f68d")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://fluxlm.everestdx.com/llm-gw/api/v1/")
 
@@ -101,6 +132,15 @@ _ANALYST_SYSTEM = (
     "do NOT drop the breakdown and do NOT switch to mode='table' for a trend.\n"
     "   - SINGLE snapshot value (no trend, one window — 'nps this month', 'today'): "
     "use mode='stat'.\n"
+    "   - PERIOD COMPARISON ('last quarter vs current quarter', 'last month vs "
+    "current month', 'previous week vs current week', 'compare X with last year'): "
+    "ONE run_kpi call, mode='stat', and the ENTIRE comparison phrase passed verbatim "
+    "as `period`. The server resolves BOTH windows and returns one result per side "
+    "(`comparison_side`: previous/current) plus a `comparison_summary` with the "
+    "delta/pct_change — report those. Do NOT make two calls with one period each, "
+    "do NOT drop one side, and do NOT set comparison=True (that flag means the "
+    "prior-YEAR window, which is a different question). Only add `dim` if the user "
+    "also asked for a breakdown.\n"
     "   - mode='table'+dim (NO time dimension) for a plain breakdown with no trend "
     "('nps by business this quarter'). `dim` may be one field or a list.\n"
     "   Always pass the time phrase VERBATIM as `period`.\n"
@@ -146,6 +186,9 @@ _ANALYST_SYSTEM = (
     "   - They want a NUMBER ('how many', 'count', 'sum', 'average', 'trend'): pass "
     "measure {agg,column} (omit for count) and/or dimensions (group-by) and/or grain "
     "(series). \n"
+    "   A comparison phrase works here too: pass the whole phrase as `period` "
+    "('last month vs current month') and the builder matches BOTH windows and "
+    "groups the rows per period automatically (see `grouping_note`).\n"
     "   To keep a governed metric's table+measure but add your own filters/dims, pass "
     "metric=<kpi name>. If a tool returns a column error with 'did you mean' or a NOTE "
     "about another table, follow that hint on the NEXT call — do not keep guessing.\n"
@@ -155,9 +198,21 @@ _ANALYST_SYSTEM = (
     "restrict to related records.\n"
     "6. DRILL-DOWN / 'why / reason behind X': query_dataset with drilldown="
     "{detail_columns:[reason/detail columns], entity_filter:{field:<id col>, op:'=', "
-    "values:[<the specific id>]}}, using the id from earlier in the conversation.\n\n"
+    "values:[<the specific id>]}}, using the id from earlier in the conversation.\n"
+    "7. FOLLOW-UP ON A PREVIOUS ANSWER ('show me the details for those', 'more "
+    "information on these incidents'): the question you are given already names the "
+    "entity, the ids and/or the SAME filters and period as the earlier turn — KEEP "
+    "them all. If it names SEVERAL record ids, do NOT call get_record once per id: "
+    "one query_dataset with select=[detail columns] and filters=[{field:<id col>, "
+    "op:'in', values:[the ids]}] returns them together. If it names exactly ONE id, "
+    "use get_record. Re-apply the stated period/filters even when the ids are "
+    "known — dropping them is what turns a valid follow-up into 'no data'.\n\n"
     "If a tool returns an `error`, report it and show the SQL. Answer concisely with "
     "the key number(s).\n"
+    "NEVER answer just 'no data available'. If a query returned 0 rows, say WHICH "
+    "entity, filters and window you used, relay any `diagnostics` counts, and (for "
+    "a follow-up) check you kept the ids/filters from the previous turn instead of "
+    "narrowing further.\n"
     "NEVER repeat an identical tool call. Once a tool has returned rows (or an "
     "error), use them — do not call the same tool with the same arguments again."
 )
@@ -192,6 +247,12 @@ _SUMMARY_SYSTEM = (
     "dimension was dropped and why (e.g. 'this metric supports only a single "
     "breakdown dimension').\n"
     "- If `applied_filters` shows fewer filters than the user asked for, note it.\n"
+    "PERIOD COMPARISONS: when a result has `comparison_windows` (and each result "
+    "carries a `comparison_side`), the user asked to compare two periods — report "
+    "BOTH sides with their own label and window, then the change. Use the "
+    "`comparison_summary` block (previous, current, delta, pct_change, direction) "
+    "verbatim rather than recomputing it, e.g. 'Availability was 98.5% last quarter "
+    "and 99.25% this quarter — up 0.75 points (+0.76%).' Never report only one side.\n"
     "TREND RESULTS (mode='series'): each result window is one time bucket (its "
     "`label`/`grain` says week or month). Report the value PER period so the trend "
     "is visible, and state the grain (e.g. 'weekly'). If the rows also carry a `grp` "
@@ -204,13 +265,26 @@ _REPHRASE_SYSTEM = (
     "question that can be answered without any prior context.\n"
     "Your conversation memory holds the earlier questions and short answer "
     "summaries — use it to resolve follow-ups.\n"
+    "A <last_result> block may also be attached to the latest message: it is the "
+    "MACHINE-READABLE record of what the previous turn actually queried and "
+    "returned (tool, metric/entity, the filters and period that were applied, the "
+    "dimension, the row count and the record ids / group labels that came back). "
+    "It is ground truth — prefer it over your own recollection of the summary.\n"
     "Rules:\n"
-    "- Resolve references ('that', 'it', 'those', 'the same') to the concrete "
-    "metric/entity from earlier.\n"
+    "- Resolve references ('that', 'it', 'those', 'these', 'the same', 'them') to "
+    "the concrete metric/entity from <last_result>.\n"
     "- Carry forward the metric, filters, dimensions and time phrase from the "
     "prior turn unless the new message overrides them (e.g. 'what about last "
     "month?' keeps the metric, changes the period to 'last month').\n"
-    "- Keep any relative time phrase VERBATIM (e.g. 'last quarter', 'this year').\n"
+    "- DETAIL FOLLOW-UPS ('show me details for it', 'more information on these "
+    "incidents', 'why?'): the user means the records behind the previous answer. "
+    "State the entity, the SAME filters and the SAME period explicitly, and when "
+    "<last_result> lists record_ids, name them in the question (e.g. 'Show the "
+    "detail columns for incidents INC0364440, INC0364512 (major incidents, "
+    "priority P1, last month)'). Never drop the previous filters/period — without "
+    "them the query matches nothing and the answer becomes 'no data'.\n"
+    "- Keep any relative time phrase VERBATIM (e.g. 'last quarter', 'this year', "
+    "'last quarter vs current quarter').\n"
     "- If the message is already self-contained, return it essentially unchanged.\n"
     "Output ONLY the rewritten question — no preamble, no quotes, no explanation."
 )
@@ -382,6 +456,108 @@ def _is_rejected_tool_entry(entry: dict) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Turn context — what the PREVIOUS turn actually queried and returned.
+#
+# The rephrase agent used to see only the questions and the prose summary, so a
+# follow-up like "show me details for those incidents" had nothing concrete to
+# resolve: the rewritten question dropped the filters/period (or the record ids)
+# and the analyst then queried something that matched nothing -> "No data
+# available". This captures the facts of the turn (tool, metric/entity, applied
+# filters, resolved window, dimension, row count, the ids/labels that came back)
+# and replays them into the next rephrase as ground truth.
+# ---------------------------------------------------------------------------
+TURN_CONTEXT_KEY = "turn_context"
+_RECORD_ID_RE = re.compile(r"^[A-Z]{2,6}\d{4,}$")
+_MAX_IDS = 25
+
+_CONTEXT_TOOLS = ("run_kpi", "query_dataset", "overview_module", "get_record")
+
+
+def _row_ids(rows: list) -> list[str]:
+    """Record identifiers present in result rows (INC…/CHG…/RITM… style), in order."""
+    out: list[str] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if not isinstance(value, str) or not _RECORD_ID_RE.match(value.strip()):
+                continue
+            if not (key.endswith("_id") or key.endswith("_number") or key == "id"):
+                continue
+            v = value.strip()
+            if v not in out:
+                out.append(v)
+            break                      # one id per row is enough to identify it
+        if len(out) >= _MAX_IDS:
+            break
+    return out
+
+
+def _group_labels(rows: list) -> list[str]:
+    """Breakdown labels from grouped rows ({grp: 'FINANCE', v: 12})."""
+    out: list[str] = []
+    for row in rows or []:
+        if isinstance(row, dict) and "grp" in row:
+            label = row["grp"]
+            label = label[0] if isinstance(label, list) and label else label
+            if label is not None and str(label) not in out:
+                out.append(str(label))
+    return out[:_MAX_IDS]
+
+
+def _turn_context(question: str, tool_outputs: list, answer: str | None) -> dict | None:
+    """Compact, machine-readable record of this turn's data access (or None)."""
+    ctx: dict = {"question": question}
+    if answer:
+        ctx["answer"] = answer[:1200]
+    entries = []
+    for t in tool_outputs or []:
+        name, res = t.get("name"), t.get("result")
+        if name not in _CONTEXT_TOOLS or not isinstance(res, dict):
+            continue
+        results = res.get("results") if isinstance(res.get("results"), list) else []
+        rows: list = list(res.get("rows") or [])
+        for sub in results:
+            rows += list(sub.get("rows") or [])
+        entry = {
+            "tool": name,
+            "metric": res.get("kpi"),
+            "title": res.get("title"),
+            "entity": res.get("entity") or res.get("base_table"),
+            "record_id": res.get("record_id"),
+            "mode": res.get("mode"),
+            "dimension": res.get("dimension"),
+            "filters": res.get("filters") or res.get("requested_filters"),
+            "period": (res.get("resolved_from_phrase") or {}).get("phrase"),
+            "window": res.get("comparison_windows") or (res.get("date_window") or {
+                k: (res.get("resolved_from_phrase") or {}).get(k)
+                for k in ("start_date", "end_date")}),
+            "rowcount": len(rows),
+        }
+        ids, labels = _row_ids(rows), _group_labels(rows)
+        if ids:
+            entry["record_ids"] = ids
+        if labels:
+            entry["group_labels"] = labels
+        if res.get("metrics"):                        # overview_module rollup
+            entry["metrics"] = [m.get("kpi") for m in res["metrics"]][:20]
+        entries.append({k: v for k, v in entry.items() if v not in (None, {}, [])})
+    if not entries:
+        return ctx if answer else None
+    ctx["data"] = entries[-3:]                        # the last few calls carry it
+    return ctx
+
+
+def _with_last_result(content: str, last: dict | None) -> str:
+    """Append the previous turn's context to the rephraser's system message."""
+    if not last:
+        return content
+    block = json.dumps(last, default=str)[:4000]
+    return (f"{content}\n\nPREVIOUS TURN (ground truth for resolving this "
+            f"follow-up):\n<last_result>\n{block}\n</last_result>")
+
+
 async def _summarize(question: str, tool_outputs: list) -> str | None:
     """Second agent: summarise the executed SQL rows in plain language."""
     kpi_results = [t["result"] for t in tool_outputs
@@ -477,18 +653,30 @@ def save_agent_state(request_uuid: str, agent: AssistantAgent, agent_name: str) 
 async def _rephrase(message: TextMessage, request_uuid: str) -> tuple[str, AssistantAgent]:
     """Rewrite a follow-up into a self-contained question using prior context.
 
+    The previous turn's :func:`_turn_context` (what was queried, with which filters
+    and window, and which records came back) is attached to the message as a
+    ``<last_result>`` block, so a follow-up like "details for those" is rewritten
+    against facts rather than against the prose summary alone.
+
     Returns the rephrased question and the (state-loaded) rephrase agent so the
     caller can append the answer summary before persisting its state.
     """
+    raw = message.content
+    last = await get_state_from_redis(request_uuid, agent_name=TURN_CONTEXT_KEY)
+    if last:
+        log.info("rephrase: carrying last-turn context (%s)",
+                 [d.get("tool") for d in (last.get("data") or [])] or "answer only")
+    # The block rides on the SYSTEM message, not the conversation: the agent is
+    # rebuilt every turn, so only the freshest turn context is ever in play (a
+    # user-message block would accumulate one stale copy per turn in the history).
     agent = await get_agent(
         name=REPHRASE_AGENT,
-        system_message=_REPHRASE_SYSTEM,
+        system_message=_with_last_result(_REPHRASE_SYSTEM, last),
         description="Rewrites follow-up messages into self-contained KPI questions.",
         request_uuid=request_uuid,
         agent_name=REPHRASE_AGENT,
         load_state=True,
     )
-    raw = message.content
     try:
         resp = await agent.on_messages(
             messages=[message], cancellation_token=CancellationToken())
@@ -510,6 +698,22 @@ async def _remember_answer(agent: AssistantAgent, summary: str | None) -> None:
         )
     except Exception as exc:  # pragma: no cover - best-effort
         log.warning("could not append answer summary to rephrase context: %s", exc)
+
+
+async def _remember_turn(request_uuid: str, question: str, tool_outputs: list,
+                         answer: str | None) -> None:
+    """Persist this turn's data-access facts for the NEXT turn's rephrase.
+
+    Kept separate from the agent state so it survives a rephrase-state failure,
+    and stored even when the summarizer produced nothing (a turn with rows but no
+    summary is exactly the one a follow-up needs to lean on)."""
+    ctx = _turn_context(question, tool_outputs, answer)
+    if not ctx:
+        return
+    try:
+        await get_store().save(request_uuid, ctx, agent_name=TURN_CONTEXT_KEY)
+    except Exception as exc:  # pragma: no cover - best-effort
+        log.warning("could not save turn context for %s: %s", request_uuid, exc)
 
 
 app = FastAPI(title="everestdx-itsm-mcp-service")
@@ -644,6 +848,10 @@ async def ask(req: AskRequest) -> StreamingResponse:
         # 4) Feed the summary back into the rephrase context; persist in bg.
         await _remember_answer(rephrase_agent, summary)
         save_agent_state(ruid, rephrase_agent, REPHRASE_AGENT)
+        # 5) Record WHAT was queried/returned so the next turn's rephrase can
+        #    resolve "details for those" against facts, not prose.
+        await _remember_turn(ruid, rephrased, parsed["tool_outputs"],
+                             summary or parsed["answer"])
 
         total = round(time.perf_counter() - t0, 4)
         yield _sse({"content": {"debug_query": {"execution_timings": {

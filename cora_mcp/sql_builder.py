@@ -82,6 +82,9 @@ class BuildResult(BaseModel):
     joined_tables: List[str]
     date_window: Optional[Dict[str, Any]] = None
     dropped_dimensions: List[str] = Field(default_factory=list)
+    # Set when a comparison period forced a time bucket the caller didn't ask for,
+    # so the answer can say the rows are per-period.
+    implicit_grain: Optional[str] = None
 
 
 def _norm_spec(spec) -> QuerySpec:
@@ -210,6 +213,11 @@ class _Builder:
     def _next_alias_for(self, alias_of: dict) -> str:
         return _ALIASES[len(alias_of)]
 
+    def _between(self, col: str, win: dict) -> str:
+        self.params.append(win["start_date"] + " 00:00:00")
+        self.params.append(win["end_date"] + " 23:59:59")
+        return f"cast({col} as timestamp) BETWEEN {P} AND {P}"
+
     def _where(self) -> List[str]:
         where: List[str] = []
         for flt in self.spec.filters:
@@ -221,12 +229,21 @@ class _Builder:
                 raise BuilderError(
                     f"period given but no date_field and table {self.scope[0][0]} has no "
                     f"time column; pass date_field explicitly")
-            win = resolve_dates(self.spec.period)
+            win = self._period_win or resolve_dates(self.spec.period)
             self._date_window = win
             col = self._col_ref(date_field)
-            where.append(f"cast({col} as timestamp) BETWEEN {P} AND {P}")
-            self.params.append(win["start_date"] + " 00:00:00")
-            self.params.append(win["end_date"] + " 23:59:59")
+            cmp_windows = win.get("comparison")
+            if cmp_windows:
+                # A comparison phrase ("last month vs current month") covers TWO
+                # windows. Both are matched with an OR rather than one span across
+                # them, so disjoint sides ("Q1 2026 vs Q3 2026") never drag in the
+                # periods between. `_select_and_group` adds the period bucket so each
+                # side lands on its own row.
+                sides = " OR ".join(self._between(col, cmp_windows[s])
+                                    for s in ("previous", "current"))
+                where.append(f"({sides})")
+            else:
+                where.append(self._between(col, win))
         # drill-down entity pin
         if self.spec.drilldown and self.spec.drilldown.entity_filter:
             where.append(self._condition(self.spec.drilldown.entity_filter))
@@ -339,14 +356,21 @@ class _Builder:
                 ref = self._ref_from(alias, ci, dim)
             sel.append(f"{ref} AS {dim}")
             group.append(ref)
-        # time bucket
-        if self.spec.grain:
-            if self.spec.grain not in _GRAIN:
+        # time bucket. A period comparison with no explicit grain buckets by the
+        # compared period itself: without it both windows would collapse into one
+        # aggregate row and the comparison the user asked for would be invisible.
+        grain = self.spec.grain
+        if not grain and (self._period_win or {}).get("comparison"):
+            grain = self._comparison_grain()
+            self.implicit_grain = grain
+            log.info("comparison period with no grain -> grouping by %s", grain)
+        if grain:
+            if grain not in _GRAIN:
                 raise BuilderError(f"grain must be one of {sorted(_GRAIN)}")
             date_field = self.spec.date_field or self.loader.table_time_field(self.scope[0][0])
             if not date_field:
                 raise BuilderError("grain given but no date_field/time column on base table")
-            bucket = f"date_trunc('{self.spec.grain}', cast({self._col_ref(date_field)} as timestamp))"
+            bucket = f"date_trunc('{grain}', cast({self._col_ref(date_field)} as timestamp))"
             sel.append(f"{bucket} AS bucket")
             group.append(bucket)
         # measure
@@ -370,12 +394,33 @@ class _Builder:
             return f"count(distinct {col}) AS {alias}"
         return f"{agg}({col}) AS {alias}"
 
+    def _comparison_grain(self) -> str:
+        """The grain that puts each compared side on its own row — derived from how
+        long a side is (a month-vs-month comparison groups by month, quarter-vs-
+        quarter by quarter), so the bucket boundaries line up with the periods."""
+        from datetime import date as _date
+        prev = (self._period_win or {}).get("comparison", {}).get("previous", {})
+        try:
+            days = (_date.fromisoformat(prev["end_date"])
+                    - _date.fromisoformat(prev["start_date"])).days + 1
+        except (KeyError, TypeError, ValueError):
+            return "month"
+        if days <= 10:
+            return "week"
+        if days <= 45:
+            return "month"
+        return "quarter" if days <= 130 else "year"
+
     # ---- assembly --------------------------------------------------------
     def build(self) -> BuildResult:
         self._date_window = None
         self._laterals: List[str] = []   # LATERAL unnest clauses for array dimensions
         self._lat_n = 0
         self.dropped_dimensions: List[str] = []
+        self.implicit_grain: Optional[str] = None
+        # Resolved once up front: both _select_and_group (implicit comparison grain)
+        # and _where (one or two windows) need it, and _select_and_group runs first.
+        self._period_win = resolve_dates(self.spec.period) if self.spec.period else None
         base_fqn = self._resolve_base()
         self.scope = [(base_fqn, "a")]
         joins_sql = self._plan_joins(base_fqn)
@@ -394,8 +439,11 @@ class _Builder:
 
         order_by = self.spec.order_by
         if not order_by and group and not (self.spec.drilldown and self.spec.drilldown.detail_columns):
-            malias = (self.spec.measure.alias if self.spec.measure else None) or "value"
-            order_by = [{"field": malias, "direction": "DESC"}]
+            if self.implicit_grain:
+                order_by = [{"field": "bucket", "direction": "ASC"}]   # oldest period first
+            else:
+                malias = (self.spec.measure.alias if self.spec.measure else None) or "value"
+                order_by = [{"field": malias, "direction": "DESC"}]
         if order_by:
             parts = [f"{o['field']} {o.get('direction', 'ASC')}" for o in order_by]
             sql += " ORDER BY " + ", ".join(parts)
@@ -409,7 +457,8 @@ class _Builder:
         log.debug("built SQL over %s (joins=%s): %s", base_fqn, joined, sql)
         return BuildResult(sql=sql, params=self.params, base_table=base_fqn,
                            joined_tables=joined, date_window=self._date_window,
-                           dropped_dimensions=self.dropped_dimensions)
+                           dropped_dimensions=self.dropped_dimensions,
+                           implicit_grain=self.implicit_grain)
 
 
 def _guard_readonly(sql: str) -> None:

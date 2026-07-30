@@ -1,7 +1,7 @@
 """Live DB execution test — runs ONLY when a Postgres DSN is configured.
 
-Set CORA_DB_VTX5 (or CORA_PG_DSN) in the environment / .env to enable. Without
-a DSN the whole module is skipped, so CI stays green offline.
+Set CORA_PG_DSN in the environment / .env to enable. Without a DSN the whole
+module is skipped, so CI stays green offline.
 """
 import os
 
@@ -10,8 +10,8 @@ import pytest
 from cora_mcp.db import resolve_dsn
 
 pytestmark = pytest.mark.skipif(
-    resolve_dsn("vtx5") is None,
-    reason="no Postgres DSN configured (set CORA_DB_VTX5 or CORA_PG_DSN)")
+    resolve_dsn() is None,
+    reason="no Postgres DSN configured (set CORA_PG_DSN)")
 
 
 @pytest.mark.asyncio

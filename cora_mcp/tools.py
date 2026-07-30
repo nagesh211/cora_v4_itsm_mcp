@@ -140,6 +140,16 @@ def _register_core(mcp) -> List[str]:
         "Q3 2025", "H1 2025", "FY2024", "rest of this year". Fiscal year starts
         in April; weeks start Sunday.
 
+        Also understands "current"/"previous" as synonyms of "this"/"last"
+        ("current quarter", "previous week") and the common abbreviations
+        ("last qtr", "3 mos").
+
+        A two-sided COMPARISON phrase ("last quarter vs current quarter",
+        "this month compared to last month") returns both windows under
+        `comparison` = {previous: {...}, current: {...}}; start_date/end_date then
+        describe the current (later) side. Pass such a phrase straight to
+        run_kpi/generate_query as `period` — they run the metric for BOTH windows.
+
         Returns start_date / end_date (YYYY-MM-DD), a `matched` flag (False =>
         the phrase was NOT recognised and this fell back to month-to-date — tell
         the user the window was assumed), and the original phrase.
@@ -241,6 +251,14 @@ def _register_core(mcp) -> List[str]:
         `filters` is a mapping of field -> value or list of values.
         `comparison=True` also emits the previous (PYTD) window in stat mode.
         `as_of` (YYYY-MM-DD) forces a snapshot read.
+
+        PERIOD COMPARISONS ("last quarter vs current quarter", "last month vs
+        current month", "previous week vs current week"): pass the WHOLE phrase as
+        `period` in ONE call — the server resolves both windows and returns one
+        result per side, each tagged `comparison_side` (previous/current) and
+        labelled with the user's own phrase, plus a `comparison_windows` block. Do
+        NOT split it into two calls with one period each, and do NOT set
+        `comparison=True` for it (that flag means the prior-YEAR window).
         """
         t0 = _log_call("generate_query", kpi=kpi, period=period, mode=mode,
                        dim=dim, grain=grain, filters=filters, comparison=comparison)
@@ -278,6 +296,12 @@ def _register_core(mcp) -> List[str]:
         query could not be executed (e.g. the database connection is not
         configured). The generated SQL is still included for transparency.
         Prefer this tool when the user wants an answer/number, not SQL.
+
+        PERIOD COMPARISONS: pass the whole phrase ("last quarter vs current
+        quarter") as `period` in ONE call with mode='stat'. The result carries one
+        window per side (`comparison_side`: previous/current) and, for stat mode, a
+        ready-made `comparison_summary` {previous, current, delta, pct_change,
+        direction} — report those numbers rather than recomputing them.
         """
         t0 = _log_call("run_kpi", kpi=kpi, period=period, mode=mode, dim=dim,
                        grain=grain, filters=filters, comparison=comparison, limit=limit)

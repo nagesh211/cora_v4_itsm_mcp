@@ -4,7 +4,8 @@ The KPI configs describe their data source as::
 
     "source": {"connection": "vtx5", "dialect": "postgres", "schema": "..."}
 
-- ``connection`` is a logical DB name -> resolved to a real DSN from ``.env``.
+- ``connection`` is a *label only* (``vtx5``, ``pepops``, ...). Every config runs
+  against the same database, so the label does not select a DSN.
 - ``dialect``    is the DB type -> selects the driver (postgres -> asyncpg).
 - ``schema``     is already baked into the generated SQL.
 
@@ -13,10 +14,12 @@ The KPI configs describe their data source as::
 asyncpg instead uses numbered ``$1, $2`` placeholders, so :func:`to_asyncpg`
 rewrites the SQL + params faithfully before execution.
 
-DSN resolution (first match wins), for connection ``vtx5``::
+There is exactly one Postgres DSN for the whole server::
 
-    CORA_DB_VTX5=postgresql://user:pass@host:5432/dbname     # per-connection
-    CORA_PG_DSN=postgresql://user:pass@host:5432/dbname      # generic fallback
+    CORA_PG_DSN=postgresql://user:pass@host:5432/dbname
+
+Legacy per-connection vars (``CORA_DB_VTX5``, ``CORA_DB_PEPOPS``, ...) are still
+honoured as a fallback, but ``CORA_PG_DSN`` wins whenever it is set.
 
 Until a DSN is configured, execution raises :class:`DBNotConfigured` (surfaced
 to the caller as a clear ``error`` field rather than a crash).
@@ -61,14 +64,23 @@ class UnsupportedDialect(DBError):
 # ---------------------------------------------------------------------------
 # DSN resolution
 # ---------------------------------------------------------------------------
-def resolve_dsn(connection: Optional[str]) -> Optional[str]:
-    """Map a logical connection name to a DSN from the environment."""
-    name = (connection or "default").strip()
-    candidates = [f"CORA_DB_{name.upper()}", "CORA_PG_DSN"]
-    for env in candidates:
+def resolve_dsn(connection: Optional[str] = None) -> Optional[str]:
+    """Return the one Postgres DSN every KPI executes against.
+
+    A config's ``source.connection`` (``vtx5``, ``pepops``, ...) is a label, not a
+    routing key — there is a single database behind all of them, ``CORA_PG_DSN``.
+    ``connection`` is still accepted so legacy per-connection vars keep working
+    for anyone who has them set, but ``CORA_PG_DSN`` takes precedence.
+    """
+    dsn = os.getenv("CORA_PG_DSN")
+    if dsn:
+        return dsn
+    name = (connection or "").strip()
+    if name:
+        env = f"CORA_DB_{name.upper()}"
         dsn = os.getenv(env)
         if dsn:
-            log.debug("resolved connection %r via %s", name, env)
+            log.debug("resolved connection %r via legacy %s", name, env)
             return dsn
     return None
 
@@ -263,9 +275,7 @@ async def execute(
 
     dsn = resolve_dsn(connection)
     if not dsn:
-        raise DBNotConfigured(
-            f"no DSN for connection {connection!r}. Set CORA_DB_{(connection or '').upper()} "
-            f"or CORA_PG_DSN in .env")
+        raise DBNotConfigured("no Postgres DSN configured. Set CORA_PG_DSN in .env")
 
     # Syntax gate: parse the SQL before we touch the database, so a malformed query
     # fails fast with a clear message instead of a raw driver error.

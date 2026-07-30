@@ -144,7 +144,7 @@ def test_numeric_filter_still_uses_in():
 
 # ---- live DB (skipped without a DSN) -------------------------------------
 pytestmark_live = pytest.mark.skipif(
-    resolve_dsn("vtx5") is None, reason="no Postgres DSN configured")
+    resolve_dsn() is None, reason="no Postgres DSN configured")
 
 
 @pytestmark_live

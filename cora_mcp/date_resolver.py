@@ -22,7 +22,7 @@ from __future__ import annotations
 import calendar
 import re
 from datetime import date, datetime, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -468,6 +468,23 @@ class TimeframeNormalizer:
 # ----------------------
 # Deterministic extractor
 # ----------------------
+# Period words, longest-first, with the abbreviations people actually type
+# ("last qtr vs this qtr"). One place to add a synonym for every branch below.
+_PERIOD_RE = r"(quarters?|qtrs?|qrtrs?|months?|weeks?|years?|mos?|wks?|yrs?)"
+
+
+def _period_grain(word: str) -> str:
+    """A matched period word (any synonym/plural) -> canonical grain."""
+    w = (word or "").strip().lower().rstrip("s")
+    if w.startswith("q"):
+        return "quarter"
+    if w.startswith("mo"):
+        return "month"
+    if w in ("wk", "week"):
+        return "week"
+    return "year" if w in ("yr", "year") else "month"
+
+
 class DeterministicExtractor:
     def __init__(self, fiscal_year_start_month: int = 4, today: Optional[date] = None):
         self.fy_start = fiscal_year_start_month
@@ -550,10 +567,13 @@ class DeterministicExtractor:
         if re.search(r"\b(wtd|week[- ]to[- ]date|this week to date|current week to date|cwtd)\b", s):
             return TimeframeIntent(kind="relative", grain="week", include_current=True, to_date=True)
 
-        # THIS <period>.
-        m = re.search(r"\bthis\s+(month|quarter|year|week)\b", s)
+        # THIS / CURRENT <period>. "current quarter" means the same window as "this
+        # quarter" — without it the phrase fell through every branch and silently
+        # defaulted to month-to-date.
+        m = re.search(r"\b(?:this|current|ongoing)\s+" + _PERIOD_RE + r"\b", s)
         if m:
-            return TimeframeIntent(kind="relative", grain=m.group(1), include_current=True)
+            return TimeframeIntent(kind="relative", grain=_period_grain(m.group(1)),
+                                   include_current=True)
 
         # NEXT / UPCOMING (future windows).
         m = re.search(r"\bnext\s+(\d+)\s+(months?|quarters?|years?|weeks?)\b", s)
@@ -568,23 +588,21 @@ class DeterministicExtractor:
             return TimeframeIntent(kind="relative", grain=m.group(2), n=1, include_current=False, is_future=True)
 
         # PAST relative windows.
-        m = re.search(r"\b(last|past|previous)\s+(\d+)\s+(months?|quarters?|years?|weeks?)\b", s)
+        m = re.search(r"\b(last|past|previous|prior)\s+(\d+)\s+" + _PERIOD_RE + r"\b", s)
         if m:
-            g = m.group(3)
-            grain = ("month" if g.startswith("month") else "quarter" if g.startswith("quarter")
-                     else "year" if g.startswith("year") else "week")
-            return TimeframeIntent(kind="relative", grain=grain, n=int(m.group(2)), include_current=False)
-        m = re.search(r"\b(\d+)\s+(months?|quarters?|years?|weeks?)\b", s)
+            return TimeframeIntent(kind="relative", grain=_period_grain(m.group(3)),
+                                   n=int(m.group(2)), include_current=False)
+        m = re.search(r"\b(\d+)\s+" + _PERIOD_RE + r"\b", s)
         if m:
-            g = m.group(2)
-            grain = ("month" if g.startswith("month") else "quarter" if g.startswith("quarter")
-                     else "year" if g.startswith("year") else "week")
-            return TimeframeIntent(kind="relative", grain=grain, n=int(m.group(1)), include_current=True)
-        m = re.search(r"\blast\s+(week|month|quarter|year)\b", s)
+            return TimeframeIntent(kind="relative", grain=_period_grain(m.group(2)),
+                                   n=int(m.group(1)), include_current=True)
+        # LAST / PREVIOUS / PRIOR <period> — one complete period back. All three
+        # qualifiers mean the same window ("previous month" used to match nothing and
+        # fall back to month-to-date, i.e. the CURRENT month: the opposite window).
+        m = re.search(r"\b(?:last|previous|prior|preceding|prev)\s+" + _PERIOD_RE + r"\b", s)
         if m:
-            return TimeframeIntent(kind="relative", grain=m.group(1), n=1, include_current=False)
-        if re.search(r"\bprevious\s+quarter\b", s):
-            return TimeframeIntent(kind="relative", grain="quarter", n=1, include_current=False)
+            return TimeframeIntent(kind="relative", grain=_period_grain(m.group(1)),
+                                   n=1, include_current=False)
         # Rolling N days — accept last/past/previous and singular/plural "day(s)".
         m = re.search(r"\b(?:last|past|previous)\s+(\d+)\s+days?\b", s)
         if m:
@@ -674,6 +692,72 @@ class DeterministicExtractor:
 
 
 # ----------------------
+# Period-vs-period comparison
+# ----------------------
+# "last quarter vs current quarter", "this month compared to last month", …
+# A comparison phrase carries TWO windows. Resolving it as one window is not a
+# small inaccuracy: the extractor scans left-to-right, so "last quarter versus this
+# quarter" used to return *this quarter* alone (the `this <period>` branch wins) —
+# the question was answered with one side of the comparison and no indication that
+# the other was dropped.
+_VS_RE = re.compile(
+    r"\s+(?:vs\.?|v/s|versus|compare[d]?\s+(?:to|with|against)|compared|against)\s+",
+    re.IGNORECASE)
+
+
+def split_comparison(phrase: str) -> Optional[Tuple[str, str]]:
+    """Split ``"A vs B"`` into ``("A", "B")``, or ``None`` if there is no
+    comparison operator. Only the FIRST operator splits (``A vs B vs C`` -> A / B
+    vs C, whose right side then resolves on its own)."""
+    parts = _VS_RE.split(phrase or "", maxsplit=1)
+    if len(parts) != 2:
+        return None
+    left, right = parts[0].strip(" ,;:"), parts[1].strip(" ,;:")
+    return (left, right) if left and right else None
+
+
+def resolve_comparison(
+    phrase: str,
+    today: Optional[date] = None,
+    fiscal_year_start_month: int = 4,
+    week_starts_on: int = 6,
+    current_period_to_date: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Resolve a two-sided comparison phrase into both windows.
+
+    Returns ``{"current": {...}, "previous": {...}}`` — each side the usual
+    ``resolve_dates`` mapping — with the chronologically LATER window as
+    ``current``, so "last quarter vs current quarter" and "current quarter vs last
+    quarter" produce the same, correctly-labelled pair.
+
+    ``None`` when the phrase has no comparison operator, or when either side is
+    not a recognised time phrase (so "incidents vs changes" is not mistaken for a
+    date comparison and silently answered for two invented windows).
+    """
+    sides = split_comparison(phrase)
+    if not sides:
+        return None
+    kw = dict(today=today, fiscal_year_start_month=fiscal_year_start_month,
+              week_starts_on=week_starts_on,
+              current_period_to_date=current_period_to_date)
+    left, right = (resolve_dates(s, **kw) for s in sides)
+    if not (left["matched"] and right["matched"]):
+        log.info("date_resolver: %r is not a two-window comparison (matched=%s/%s)",
+                 phrase, left["matched"], right["matched"])
+        return None
+    previous, current = ((left, right) if left["end_date"] <= right["end_date"]
+                         else (right, left))
+    if previous["start_date"] == current["start_date"] \
+            and previous["end_date"] == current["end_date"]:
+        log.info("date_resolver: both sides of %r resolve to the same window", phrase)
+        return None
+    log.info("date_resolver: comparison %r -> previous %s..%s vs current %s..%s",
+             phrase, previous["start_date"], previous["end_date"],
+             current["start_date"], current["end_date"])
+    return {"current": current, "previous": previous}
+
+
+# ----------------------
 # Public API
 # ----------------------
 def resolve_dates(
@@ -682,16 +766,29 @@ def resolve_dates(
     fiscal_year_start_month: int = 4,
     week_starts_on: int = 6,
     current_period_to_date: bool = True,
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Resolve a natural-language time phrase into an inclusive date window.
 
     Returns ``{"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
     "matched": bool, "phrase": <input>}``.
 
+    A two-sided **comparison** phrase ("last quarter vs current quarter") also
+    carries a ``comparison`` block with both resolved windows; ``start_date`` /
+    ``end_date`` then describe the LATER (current) side, so a caller that ignores
+    the block still gets the window the user's "current"/"this" side named rather
+    than whichever side the scanner happened to hit first.
+
     Deterministic only. If nothing matches, falls back to current-month-to-date
     (the original agent's final default) and sets ``matched=False``.
     """
     today = today or date.today()
+    cmp_windows = resolve_comparison(
+        phrase, today=today, fiscal_year_start_month=fiscal_year_start_month,
+        week_starts_on=week_starts_on, current_period_to_date=current_period_to_date)
+    if cmp_windows:
+        cur = cmp_windows["current"]
+        return {"start_date": cur["start_date"], "end_date": cur["end_date"],
+                "matched": True, "phrase": phrase, "comparison": cmp_windows}
     det = DeterministicExtractor(fiscal_year_start_month=fiscal_year_start_month, today=today)
     norm = TimeframeNormalizer(
         today=today,
