@@ -4,7 +4,6 @@ The KPI configs describe their data source as::
 
     "source": {"connection": "vtx5", "dialect": "postgres", "schema": "..."}
 
-- ``connection`` is a *label only* (``vtx5``, ``pepops``, ...). Every config runs
   against the same database, so the label does not select a DSN.
 - ``dialect``    is the DB type -> selects the driver (postgres -> asyncpg).
 - ``schema``     is already baked into the generated SQL.
@@ -67,7 +66,6 @@ class UnsupportedDialect(DBError):
 def resolve_dsn(connection: Optional[str] = None) -> Optional[str]:
     """Return the one Postgres DSN every KPI executes against.
 
-    A config's ``source.connection`` (``vtx5``, ``pepops``, ...) is a label, not a
     routing key — there is a single database behind all of them, ``CORA_PG_DSN``.
     ``connection`` is still accepted so legacy per-connection vars keep working
     for anyone who has them set, but ``CORA_PG_DSN`` takes precedence.

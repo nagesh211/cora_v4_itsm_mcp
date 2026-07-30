@@ -98,11 +98,11 @@ def test_resolve_dsn_single_dsn_for_every_connection(monkeypatch):
     """CORA_PG_DSN serves every connection label and outranks legacy per-connection vars."""
     monkeypatch.setenv("CORA_DB_VTX5", "postgresql://legacy")
     monkeypatch.setenv("CORA_PG_DSN", "postgresql://only")
-    for name in ("vtx5", "pepops", "anything", None):
+    for name in ("vtx5", "pepops_bkp", "anything", None):
         assert resolve_dsn(name) == "postgresql://only"
     # Without the single DSN, a legacy per-connection var still resolves.
     monkeypatch.delenv("CORA_PG_DSN")
     assert resolve_dsn("vtx5") == "postgresql://legacy"
-    assert resolve_dsn("pepops") is None
+    assert resolve_dsn("pepops_bkp") is None
     monkeypatch.delenv("CORA_DB_VTX5")
     assert resolve_dsn("vtx5") is None

@@ -67,7 +67,6 @@ def summary_from_config(cfg: dict) -> dict:
         # "business"/"p&l" (-> sector) or "team" (-> assignment_group) and be
         # resolved deterministically. Pass any of these as a `filters` key.
         "filter_aliases": _filter_alias_map(allowed),
-        # Reads drilldown.dimensions OR allowed_group_by, so legacy and pepops
         # configs advertise their breakdown dimensions identically.
         "drilldown_dimensions": osc.config_dimensions(cfg),
         "sample_questions": nl.get("sample_questions", []),

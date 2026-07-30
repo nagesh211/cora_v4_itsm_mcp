@@ -197,7 +197,6 @@ def _register_core(mcp) -> List[str]:
         # When the caller didn't pin a module, infer one from the question to
         # sharpen ranking. Under the default CORA_MODULE_ROUTING=boost the guess
         # only re-ranks — it can never exclude a KPI, which matters while configs
-        # carry two module vocabularies (legacy 'cm' vs pepops 'changes').
         mode = routing_mode()
         detected = (await detect_module(query)
                     if (module is None and mode != "off") else None)

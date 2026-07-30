@@ -145,13 +145,6 @@ SEARCH_FIELDS = [
 def config_dimensions(cfg: dict) -> List[str]:
     """The dimensions a KPI can be broken down by, whichever shape declares them.
 
-    Two config shapes are in play and they name this differently:
-
-      * legacy ``config/*.json``  -> ``drilldown.dimensions: ["region_name", …]``
-      * pepops ``pepops/*.json``  -> ``allowed_group_by: [{"field": …,
-                                       "granularity": [...]?}, …]``
-
-    Reading only the first shape indexes ``drilldown_dims: []`` for every pepops
     KPI, so nothing downstream (the MCP summary, dim resolution, group-by
     validation) knows the KPI *can* be broken down. Entries carrying a
     ``granularity`` list are time-grain date fields for ``mode="series"``
