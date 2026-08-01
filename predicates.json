@@ -1,0 +1,242 @@
+{
+  "description": "Named SCOPE PREDICATES — the reusable WHERE-clause half of the semantic layer, kept separate from measures. A KPI config answers 'what do we aggregate'; a predicate answers 'over which subset'. A user phrase like 'major' or 'sla breached' is a predicate, not a metric, so it must never be resolved to a KPI (see MULTI_METRIC_ANALYSIS.md section 1).\n\nEach predicate declares per-table BINDINGS because the same business concept is stored differently per table: sla_breached is integer 1 on itsm_incident.tbl_incident_sla, varchar '1' on tbl_sla_response, boolean true on tbl_tableau_major_incdnt and varchar 'TRUE' on the service-request table. A binding with an empty `conditions` list means the table is ALREADY scoped that way (e.g. every row of tbl_major_incidents is a major incident), so the predicate costs no WHERE clause at all — it is satisfied by choosing that table.\n\nVALUES HERE ARE DB-VERIFIED and are used VERBATIM: the composer marks them `resolved` so sql_builder skips value_resolver. This is deliberate — schema_v3.yaml `possible_values` were found to disagree with the database on many columns (e.g. active_indicator_type is NOT ['NO','YES']), so a predicate must not be re-resolved against that domain. Re-verify with `python -m cora_mcp.predicate_registry --verify` after any data model change.\n\n`grain_key` is the column that identifies one entity instance across tables; it is the join key used when a predicate cannot bind to the anchor table and has to become an EXISTS semi-join.",
+  "predicates": {
+    "major_incident": {
+      "synonyms": ["major", "major incident", "major incidents", "mi", "major inc",
+                   "sev1", "sev 1", "severity 1", "critical incident", "critical incidents"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_incident.tbl_major_incidents", "conditions": [], "primary": true,
+         "note": "PRIMARY: dedicated major-incident table, so the predicate costs no WHERE clause at all (verified: all 1651 rows have major_incident_indicator='1')"},
+        {"table": "itsm_availability.tbl_tableau_major_incdnt", "conditions": [],
+         "note": "major-incident SLA table; 1:1 with tbl_major_incidents on incident_id"},
+        {"table": "itsm_incident.tbl_all_incidents",
+         "conditions": [{"field": "major_incident_indicator", "op": "=", "values": [true]}],
+         "note": "boolean column; verified true=1180 / false=154280"}
+      ]
+    },
+    "sla_breached": {
+      "synonyms": ["sla breached", "sla breach", "sla breaches", "breached sla", "breached",
+                   "missed sla", "sla missed", "out of sla", "outside sla", "sla violation",
+                   "sla violated", "not within sla"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "negated_by": "sla_met",
+      "bindings": [
+        {"table": "itsm_incident.tbl_incident_sla", "primary": true,
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [1]}],
+         "note": "PRIMARY: the only incident SLA table covering BOTH the response and resolution clocks (310920 rows), so a generic 'breached' question must resolve here rather than to one clock. Integer column; verified 1=67088 / 0=243832."},
+        {"table": "itsm_incident.tbl_sla_resolution",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [1]}],
+         "note": "integer column; verified 1=331 / 0=135518 (resolution clock only)"},
+        {"table": "itsm_incident.tbl_sla_response",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": ["1"]}],
+         "note": "varchar column; verified '1'=18624 / '0'=136836 (response clock only)"},
+        {"table": "itsm_availability.tbl_tableau_major_incdnt",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [true]}],
+         "note": "boolean column; verified true=617 / false=1034"}
+      ]
+    },
+    "sr_sla_breached": {
+      "synonyms": ["request sla breached", "sr sla breached", "request breached sla",
+                   "service request sla breach", "request missed sla"],
+      "entity": "service_request",
+      "grain_key": "request_item_id",
+      "note": "Deliberately SEPARATE from sla_breached: the service-request grain key is request_item_id, not incident_id, so the two must never be intersected or semi-joined into one another.",
+      "bindings": [
+        {"table": "itsm_servicerequest.tbl_request_item", "primary": true,
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": ["TRUE"]}],
+         "note": "varchar UPPERCASE column; verified 'TRUE'=9350 / 'FALSE'=42850"}
+      ]
+    },
+    "sla_met": {
+      "synonyms": ["sla met", "met sla", "within sla", "inside sla", "sla compliant",
+                   "sla compliance", "not breached", "no breach", "sla honoured", "sla honored"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "negated_by": "sla_breached",
+      "bindings": [
+        {"table": "itsm_incident.tbl_incident_sla", "primary": true,
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [0]}],
+         "note": "PRIMARY for the same reason as sla_breached: covers both clocks."},
+        {"table": "itsm_incident.tbl_sla_resolution",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [0]}]},
+        {"table": "itsm_incident.tbl_sla_response",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": ["0"]}]},
+        {"table": "itsm_availability.tbl_tableau_major_incdnt",
+         "conditions": [{"field": "sla_breached_indicator", "op": "=", "values": [false]}]}
+      ]
+    },
+    "closed_incident": {
+      "synonyms": ["closed", "closed incident", "closed incidents"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_incident.tbl_all_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED"]}],
+         "note": "verified domain: CLOSED / OPENED / RESOLVED / CANCELED"},
+        {"table": "itsm_incident.tbl_major_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED"]}]}
+      ]
+    },
+    "open_incident": {
+      "synonyms": ["open", "open incident", "open incidents", "still open", "unresolved",
+                   "not closed", "outstanding"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_incident.tbl_all_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["OPENED"]}],
+         "note": "the stored value is OPENED, not OPEN — schema_v3.yaml does not list it"},
+        {"table": "itsm_incident.tbl_major_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["OPENED"]}]}
+      ]
+    },
+    "resolved_incident": {
+      "synonyms": ["resolved", "resolved incident", "resolved incidents"],
+      "entity": "incident",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_incident.tbl_all_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}]},
+        {"table": "itsm_incident.tbl_major_incidents",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}]}
+      ]
+    },
+    "major_problem": {
+      "synonyms": ["major problem", "major problems", "major prb"],
+      "entity": "problem",
+      "grain_key": "problem_id",
+      "bindings": [
+        {"table": "itsm_problem.tbl_problem",
+         "conditions": [{"field": "major_problem_indicator", "op": "=", "values": ["TRUE"]}],
+         "note": "varchar UPPERCASE; verified 'TRUE'=1713 / 'FALSE'=7870"}
+      ]
+    },
+    "emergency_change": {
+      "synonyms": ["emergency change", "emergency changes", "emergency"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "type_description", "op": "=", "values": ["EMERGENCY"]}],
+         "note": "verified domain: NORMAL / STANDARD / EMERGENCY / EXPEDITE"}
+      ]
+    },
+    "expedite_change": {
+      "synonyms": ["expedite change", "expedite changes", "expedited change", "expedite"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "type_description", "op": "=", "values": ["EXPEDITE"]}]}
+      ]
+    },
+    "normal_change": {
+      "synonyms": ["normal change", "normal changes"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "type_description", "op": "=", "values": ["NORMAL"]}]}
+      ]
+    },
+    "standard_change": {
+      "synonyms": ["standard change", "standard changes"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "type_description", "op": "=", "values": ["STANDARD"]}]}
+      ]
+    },
+    "failed_change": {
+      "synonyms": ["failed change", "failed changes", "unsuccessful change",
+                   "unsuccessful changes", "change failure", "change failures"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "successful_indicator", "op": "=", "values": [0]}],
+         "note": "int4 column; verified 1=104788 / 0=5719"}
+      ]
+    },
+    "high_risk_change": {
+      "synonyms": ["high risk change", "high risk changes", "high risk", "risky change"],
+      "entity": "change",
+      "grain_key": "change_id",
+      "bindings": [
+        {"table": "itsm_change.tbl_change",
+         "conditions": [{"field": "risk_description", "op": "=", "values": ["HIGH"]}],
+         "note": "verified domain: MODERATE / LOW / HIGH"}
+      ]
+    },
+    "major_release": {
+      "synonyms": ["major release", "major releases"],
+      "entity": "release",
+      "grain_key": "release_number",
+      "bindings": [
+        {"table": "itsm_release.tbl_pepops_release_mgmt",
+         "conditions": [{"field": "type", "op": "=", "values": ["MAJOR"]}],
+         "note": "verified domain: MINOR / MAJOR"}
+      ]
+    },
+    "agile_release": {
+      "synonyms": ["agile release", "agile releases", "agile"],
+      "entity": "release",
+      "grain_key": "release_number",
+      "bindings": [
+        {"table": "itsm_release.tbl_pepops_release_mgmt",
+         "conditions": [{"field": "methodology", "op": "=", "values": ["AGILE"]}]}
+      ]
+    },
+    "waterfall_release": {
+      "synonyms": ["waterfall release", "waterfall releases", "waterfall", "traditional release"],
+      "entity": "release",
+      "grain_key": "release_number",
+      "bindings": [
+        {"table": "itsm_release.tbl_pepops_release_mgmt",
+         "conditions": [{"field": "methodology", "op": "=", "values": ["WATERFALL/TRADITIONAL"]}]}
+      ]
+    },
+    "successful_release": {
+      "synonyms": ["successful release", "successful releases", "release success"],
+      "entity": "release",
+      "grain_key": "release_number",
+      "bindings": [
+        {"table": "itsm_release.tbl_pepops_release_mgmt",
+         "conditions": [{"field": "closure_code", "op": "=", "values": ["SUCCESSFUL"]}],
+         "note": "verified domain: SUCCESSFUL / NOT PROVIDED / SUCCESSFUL WITH ISSUES / UNSUCCESSFUL"}
+      ]
+    },
+    "cancelled_release": {
+      "synonyms": ["cancelled release", "cancelled releases", "canceled release"],
+      "entity": "release",
+      "grain_key": "release_number",
+      "bindings": [
+        {"table": "itsm_release.tbl_pepops_release_mgmt",
+         "conditions": [{"field": "state", "op": "=", "values": ["CANCELLED"]}]}
+      ]
+    },
+    "sr_closed_complete": {
+      "synonyms": ["closed complete", "completed request", "fulfilled request",
+                   "successfully closed request"],
+      "entity": "service_request",
+      "grain_key": "request_item_id",
+      "bindings": [
+        {"table": "itsm_servicerequest.tbl_request_item",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED COMPLETE"]}]}
+      ]
+    },
+    "sr_closed_incomplete": {
+      "synonyms": ["closed incomplete", "incomplete request", "unfulfilled request"],
+      "entity": "service_request",
+      "grain_key": "request_item_id",
+      "bindings": [
+        {"table": "itsm_servicerequest.tbl_request_item",
+         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED INCOMPLETE"]}]}
+      ]
+    }
+  }
+}

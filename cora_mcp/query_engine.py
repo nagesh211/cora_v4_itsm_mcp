@@ -111,6 +111,29 @@ def resolve_filter_key(config: dict, term: str) -> str:
         return sc
 
     avail = _available_filters_desc(config)
+    # Telemetry: a rejected filter is the signal that a question needed a qualifier the
+    # metric layer cannot express. Logged in one structured line so the frequency of
+    # each missing term can be counted from the logs, rather than guessing at whether
+    # the composer/predicate layer is earning its keep (MULTI_METRIC_ANALYSIS.md §8).
+    predicate_hint = None
+    try:
+        from cora_mcp.predicate_registry import get_registry as _preds
+        hit = _preds().resolve(term)
+        predicate_hint = hit.name if hit else None
+    except Exception:                      # never let telemetry break resolution
+        pass
+    log.info("FILTER_REJECTED kpi=%s term=%r canonical=%r predicate_match=%r "
+             "primary_table=%s available=%s",
+             config.get("name"), term, canonical, predicate_hint,
+             _kpi_primary_fqn(config), sorted(avail))
+    if predicate_hint:
+        raise QueryError(
+            f"{term!r} is a scope predicate ({predicate_hint!r}), not a filter on KPI "
+            f"{config.get('name')!r}. It restricts WHICH records count rather than "
+            f"naming a dimension, and on this metric's table it may not be expressible "
+            f"at all. Use compose_metric(predicates=[{predicate_hint!r}], ...) to have "
+            f"the anchor table chosen accordingly. "
+            f"This KPI's own filters: {avail}")
     if canonical is not None:
         raise QueryError(
             f"filter {term!r} (means {canonical!r}) is not available on KPI "
@@ -261,31 +284,26 @@ def schema_columns_for(config: dict) -> Dict[str, dict]:
 def resolve_dim_via_schema(
     config: dict, word: str, roles: tuple = ("dimension",)
 ) -> Optional[str]:
-    """Fallback: map a dimension word to a real column on the KPI's primary table
-    from ``schema_v3.yaml`` when the KPI config itself doesn't declare it.
+    """Fallback: map a dimension/filter word to a real column on the KPI's primary
+    table from ``schema_v3.yaml`` when the KPI config itself doesn't declare it.
 
-    Restricted to columns whose schema ``role`` is in ``roles`` (dimensions only,
-    by default) so the fallback never groups by a measure/timestamp/identifier.
-    Matches the same suffix-aware forms as :func:`resolve_dim_word` (``business``
-    -> ``business_name``). Returns the column name or None.
+    Restricted to columns whose schema ``role`` is in ``roles`` (dimensions only, by
+    default) so a breakdown never groups by a measure/timestamp/identifier; pass
+    ``roles=()`` for filtering, where any role is fair game.
+
+    Delegates to :func:`cora_mcp.column_resolver.resolve_column`, so this path now also
+    honours a column's declared ``canonical`` / ``alias`` vocabulary — metadata the
+    schema has always carried but nothing consulted. That is what lets a question say
+    "sla breached" or "capability" and reach ``sla_breached_indicator`` /
+    ``service_area`` without a per-KPI alias entry.
     """
     if not word:
         return None
-    cols = schema_columns_for(config)
-    if not cols:
+    fqn = _kpi_primary_fqn(config)
+    if not fqn:
         return None
-    wl = str(word).strip().lower()
-    candidates = {wl, wl + "_name", wl + "_description"}
-    for name, ci in cols.items():
-        if roles and (ci.get("role") or "dimension") not in roles:
-            continue
-        nl = name.lower()
-        if nl == wl or nl in candidates:
-            return name
-        for suf in ("_name", "_description"):
-            if nl.endswith(suf) and nl[: -len(suf)] == wl:
-                return name
-    return None
+    from cora_mcp.column_resolver import resolve_column
+    return resolve_column(fqn, word, roles=roles)
 
 
 def resolve_dim_word(config: dict, word: str) -> Optional[str]:

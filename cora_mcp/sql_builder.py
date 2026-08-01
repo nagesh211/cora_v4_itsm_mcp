@@ -47,6 +47,29 @@ class Filter(BaseModel):
     field: str
     op: str = "="
     values: List[Any] = Field(default_factory=list)
+    # Set when ``values`` are ALREADY the real stored values (e.g. emitted from a
+    # predicate binding, which carries DB-verified constants). Skips the
+    # ``value_resolver`` pass so a known-good value is never re-checked against the
+    # column's declared ``possible_values`` — those were measured to be wrong on
+    # several columns, and re-resolving would reject a correct value.
+    resolved: bool = False
+
+
+class SemiJoin(BaseModel):
+    """An EXISTS test against a related table — a row *filter*, not a row multiplier.
+
+    Used when a predicate cannot bind to the anchor table and must be evaluated on
+    another table at the same entity grain. EXISTS rather than INNER JOIN is
+    deliberate: the SLA tables hold one row per SLA clock, so a join would fan out
+    and silently corrupt ``avg``/``sum``/``count(*)`` measures. An EXISTS keeps the
+    base row count intact no matter how many matching rows exist.
+    """
+    table: str                                   # entity slug or schema.table
+    key_right: str                               # join column ON THE JOINED table
+    key_left: Optional[str] = None               # base-side column (defaults to key_right)
+    filters: List[Filter] = Field(default_factory=list)
+    negate: bool = False                         # NOT EXISTS
+    label: Optional[str] = None                  # why this exists, for explainability
 
 
 class Drilldown(BaseModel):
@@ -65,6 +88,7 @@ class QuerySpec(BaseModel):
     measure: Optional[Measure] = None
     dimensions: List[str] = Field(default_factory=list)
     filters: List[Filter] = Field(default_factory=list)
+    semi_joins: List[SemiJoin] = Field(default_factory=list)
     period: Optional[str] = None         # NL phrase -> resolve_dates
     date_field: Optional[str] = None
     join_with: List[str] = Field(default_factory=list)
@@ -80,6 +104,9 @@ class BuildResult(BaseModel):
     params: List[Any]
     base_table: str
     joined_tables: List[str]
+    # Tables reached by an EXISTS test rather than a JOIN — they restrict the base
+    # rows but contribute no columns, so callers can explain the scoping.
+    semi_joined_tables: List[str] = Field(default_factory=list)
     date_window: Optional[Dict[str, Any]] = None
     dropped_dimensions: List[str] = Field(default_factory=list)
     # Set when a comparison period forced a time bucket the caller didn't ask for,
@@ -247,16 +274,65 @@ class _Builder:
         # drill-down entity pin
         if self.spec.drilldown and self.spec.drilldown.entity_filter:
             where.append(self._condition(self.spec.drilldown.entity_filter))
+        # semi-joins last, so their bind params land after every other WHERE param
+        for sj in self.spec.semi_joins:
+            where.append(self._semi_join_sql(sj))
         return where
+
+    def _semi_join_sql(self, sj: SemiJoin) -> str:
+        """``EXISTS (SELECT 1 FROM other o WHERE o.key = a.key AND <conds>)``.
+
+        A test, not a join: the base row count is unchanged however many rows match,
+        so a 1:N relationship (one incident, many SLA clocks) cannot inflate an
+        ``avg``/``sum``/``count(*)`` measure the way an INNER JOIN would."""
+        fqn = sj.table
+        if not ("." in fqn and self.loader.get_table(fqn)):
+            resolved = self.loader.entity_primary_table(sj.table)
+            if not resolved:
+                raise BuilderError(
+                    f"unknown semi-join table {sj.table!r}: not a known table or entity")
+            fqn = resolved
+        alias = "sj%d" % self._sj_n
+        self._sj_n += 1
+
+        right = sj.key_right
+        if not self.loader.column_info(fqn, right):
+            raise BuilderError(
+                f"semi-join key {right!r} not found in {fqn}; "
+                f"available: {sorted(self.loader.table_columns(fqn))[:30]}")
+        left = sj.key_left or sj.key_right
+        # The left key must exist in the OUTER scope — this is what ties the subquery
+        # to the base row, so a missing one is a hard error rather than a dropped test.
+        lalias, lci = self._resolve_col(left)
+        left_ref = self._ref_from(lalias, lci, left)
+
+        conds = ["%s.%s = %s" % (alias, right, left_ref)]
+        for flt in sj.filters:
+            conds.append(self._condition(flt, in_table=(fqn, alias)))
+        expr = "EXISTS (SELECT 1 FROM %s %s WHERE %s)" % (fqn, alias, " AND ".join(conds))
+        self.semi_joined_tables.append(fqn)
+        return "NOT %s" % expr if sj.negate else expr
 
     @staticmethod
     def _is_text_type(type_l: str) -> bool:
         return any(k in type_l for k in ("char", "text", "keyword", "varchar"))
 
-    def _condition(self, flt: Filter) -> str:
+    def _condition(self, flt: Filter,
+                   in_table: Optional[Tuple[str, str]] = None) -> str:
+        """SQL for one filter. ``in_table`` = (table_fqn, alias) resolves the column
+        against THAT table only — used inside an EXISTS subquery, where the column
+        belongs to the joined table rather than anything in the outer scope."""
         if flt.op not in _OPS:
             raise BuilderError(f"unsupported op {flt.op!r}; allowed: {sorted(_OPS)}")
-        alias, ci = self._resolve_col(flt.field)
+        if in_table:
+            fqn, alias = in_table
+            ci = self.loader.column_info(fqn, flt.field)
+            if not ci:
+                avail = sorted(self.loader.table_columns(fqn))
+                raise BuilderError(
+                    f"column {flt.field!r} not found in {fqn}; available: {avail[:30]}")
+        else:
+            alias, ci = self._resolve_col(flt.field)
         col = self._ref_from(alias, ci, flt.field)
         type_l = (ci.get("type") or "").lower()
         is_array = self._is_array(ci)
@@ -273,7 +349,7 @@ class _Builder:
         # declared domain pass through unchanged.
         values = list(flt.values)
         if (is_text or is_text_array) and flt.op in ("=", "!=", "in", "not_in") \
-                and ci.get("possible_values"):
+                and ci.get("possible_values") and not flt.resolved:
             values = value_resolver.resolve_or_raise(
                 flt.field, values, ci.get("possible_values"), BuilderError)
 
@@ -416,6 +492,8 @@ class _Builder:
         self._date_window = None
         self._laterals: List[str] = []   # LATERAL unnest clauses for array dimensions
         self._lat_n = 0
+        self._sj_n = 0                   # EXISTS subquery alias counter (sj0, sj1, ...)
+        self.semi_joined_tables: List[str] = []
         self.dropped_dimensions: List[str] = []
         self.implicit_grain: Optional[str] = None
         # Resolved once up front: both _select_and_group (implicit comparison grain)
@@ -456,7 +534,9 @@ class _Builder:
         joined = [t for t, _ in self.scope if t != base_fqn]
         log.debug("built SQL over %s (joins=%s): %s", base_fqn, joined, sql)
         return BuildResult(sql=sql, params=self.params, base_table=base_fqn,
-                           joined_tables=joined, date_window=self._date_window,
+                           joined_tables=joined,
+                           semi_joined_tables=self.semi_joined_tables,
+                           date_window=self._date_window,
                            dropped_dimensions=self.dropped_dimensions,
                            implicit_grain=self.implicit_grain)
 

@@ -146,6 +146,13 @@ class RelationshipGraph:
                 continue
             path = self._bfs(base, target)
             if path is None:
+                # Telemetry: counts how often a question genuinely needs a cross-entity
+                # JOIN, as opposed to a scope predicate that an EXISTS test can satisfy.
+                # The distinction decides whether populating `relationships:` is worth
+                # it (MULTI_METRIC_ANALYSIS.md §8, phase 5).
+                log.info("JOIN_PATH_MISSING base=%s target=%s declared_edges=%d "
+                         "declared_tables=%d", base, target, len(self._by_name),
+                         len(self._adj))
                 raise NoJoinPathError(
                     f"no relationship path from {base} to {target}. "
                     f"Declared tables: {self.tables()}")

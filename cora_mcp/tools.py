@@ -501,6 +501,113 @@ def _register_core(mcp) -> List[str]:
         _log_done("preflight", t0, f"-> ok={out.get('ok')}")
         return out
 
+    def list_predicates(entity: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List the SCOPE PREDICATES available — the reusable qualifiers that restrict
+        WHICH records a metric counts (e.g. 'major', 'sla breached', 'emergency change',
+        'high risk', 'failed change', 'major release').
+
+        These are NOT metrics and NOT dimensions. A phrase like "sla breached" reads
+        like a KPI name but is really a WHERE clause, so passing it to search_kpis/
+        run_kpi gives a wrong or missing answer. Pass them to `compose_metric` instead.
+
+        Each entry gives the canonical `name`, the `synonyms` that resolve to it, the
+        `entity` it applies to, and the tables it can be evaluated on. Optionally filter
+        by entity ('incident', 'problem', 'change', 'release', 'service_request')."""
+        from cora_mcp.predicate_registry import get_registry as _preds
+        t0 = _log_call("list_predicates", entity=entity)
+        reg = _preds()
+        out = []
+        for name in reg.names():
+            p = reg.get(name)
+            if entity and p.entity != entity:
+                continue
+            out.append({
+                "name": p.name, "entity": p.entity, "synonyms": p.synonyms,
+                "grain_key": p.grain_key,
+                "tables": p.tables(),
+                "free_on": [b.table for b in p.bindings() if b.is_free],
+            })
+        _log_done("list_predicates", t0, f"-> {len(out)}")
+        return out
+
+    async def compose_metric(
+        measure: Optional[Dict[str, Any]] = None,
+        predicates: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        dimensions: Optional[List[str]] = None,
+        select: Optional[List[str]] = None,
+        period: Optional[str] = None,
+        grain: Optional[str] = None,
+        entity: Optional[str] = None,
+        base: Optional[str] = None,
+        date_field: Optional[str] = None,
+        limit: int = 200,
+    ) -> Dict[str, Any]:
+        """Answer a question qualified by ONE OR MORE scope predicates — either as a
+        NUMBER or as the underlying RECORDS.
+
+        TWO SHAPES:
+          * AGGREGATE (default) — "how many <entity> that are BOTH <X> AND <Y>".
+          * DETAIL LISTING — pass `select`. Use this for "show me / list / details of
+            the <X> that are <Y>". Same predicate logic, but it returns raw rows with
+            no aggregation. Pass `select=[]` (an empty list) to get a sensible default
+            column set derived from the schema — do NOT invent column names.
+
+        Use `select` here rather than query_dataset for any qualified listing:
+        query_dataset would need a declared JOIN to reach the qualifier's table, and
+        this composes it as an EXISTS test instead, which needs no relationship.
+
+        USE THIS when the question carries a qualifier that is not one of a KPI's
+        dimensions: 'major', 'sla breached', 'emergency', 'high risk', 'failed',
+        'major release', 'closed incomplete' (see `list_predicates`). Those restrict
+        which records count; they are not metrics, so run_kpi cannot apply them and
+        search_kpis will mis-resolve them to a similarly-named KPI.
+
+        It picks the anchor table automatically: the table that satisfies the most
+        predicates itself (a table already scoped to the subset costs no filter at all)
+        while still carrying every requested filter and dimension. Any predicate that
+        lives elsewhere becomes an EXISTS test on the shared entity key — a row filter,
+        so one-to-many rows can never inflate the measure.
+
+        If a requested filter or predicate cannot be expressed anywhere, it REFUSES with
+        the reason instead of dropping it — a partially-applied question returns a
+        confidently wrong number.
+
+        Args:
+          measure: {"agg": count|count_distinct|sum|avg|min|max, "column": "<col>"};
+            defaults to count_distinct on the entity key, so an anchor holding several
+            rows per entity cannot inflate the count. Ignored when `select` is given.
+          predicates: scope predicate names/synonyms, ANDed together (from list_predicates).
+          filters: {dimension word -> value or [values]} e.g. {"business": "PBNA"}.
+          dimensions: breakdown columns/words, e.g. ["region"].
+          select: detail columns for a LISTING (mutually exclusive with measure/
+            dimensions). `[]` = pick a sensible default set from the schema.
+          period: natural-language window passed verbatim, e.g. "last 3 months".
+          grain: day|week|month|quarter for a time series.
+          entity: optional entity hint; inferred from the predicates when omitted.
+          base: force a specific anchor table (skips selection).
+          date_field: force which timestamp the period applies to (opened vs closed).
+
+        Returns the rows plus a `composition` block naming the anchor table, how each
+        predicate was satisfied (free / direct / semi_join) and any dropped breakdown —
+        report those notes so the user knows how the number was scoped.
+        """
+        from cora_mcp.composer import ComposeError, compose_and_run
+        t0 = _log_call("compose_metric", predicates=predicates, filters=filters,
+                       dimensions=dimensions, select=select, period=period,
+                       entity=entity, measure=measure, grain=grain)
+        try:
+            out = await compose_and_run(
+                measure=measure, predicates=predicates, filters=filters,
+                dimensions=dimensions, select=select, period=period, grain=grain,
+                entity=entity, base=base, date_field=date_field, limit=limit)
+        except (ComposeError, QueryError, BuilderError) as exc:
+            log.warning("compose_metric refused: %s", exc)
+            return {"error": str(exc)}
+        _log_done("compose_metric", t0,
+                  f"-> anchor={out.get('composition', {}).get('anchor_table')}")
+        return out
+
     def list_relationships(module: Optional[str] = None) -> List[Dict[str, Any]]:
         """List the declared table relationships (join paths) available for
         cross-entity queries — e.g. incident_caused_by_change, incident_has_problem.
@@ -605,6 +712,8 @@ def _register_core(mcp) -> List[str]:
         (run_kpi, "run_kpi"),
         (get_record, "get_record"),
         (query_dataset, "query_dataset"),
+        (list_predicates, "list_predicates"),
+        (compose_metric, "compose_metric"),
         (plan_query, "plan_query"),
         (preflight, "preflight"),
         (list_relationships, "list_relationships"),
