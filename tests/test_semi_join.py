@@ -50,8 +50,14 @@ def test_does_not_emit_a_join():
 
 def test_subquery_conditions_are_parameterised():
     built = sb.build(_spec())
-    assert "sj0.sla_breached_indicator = %s" in built.sql
-    assert 1 in built.params
+    # sla_breached_indicator is varchar ('0'/'1'/'YES'/'NO'), so the comparison is
+    # case-folded like every other text filter.
+    assert "lower(sj0.sla_breached_indicator) = %s" in built.sql
+    # The value binds exactly as supplied. Type coercion is deliberately NOT done
+    # here: db._coerce_for_pgtype converts it against the column's *real* Postgres
+    # type, read from the prepared statement, rather than against the schema YAML's
+    # declared type (which has been measured wrong on several columns).
+    assert "1" in built.params
 
 
 def test_negate_emits_not_exists():
@@ -82,7 +88,7 @@ def test_params_are_ordered_to_match_placeholders():
     """Semi-join params must land AFTER the date-window params, or every bind shifts."""
     built = sb.build(_spec(period="last 3 months", date_field="open_date_time"))
     assert built.sql.index("BETWEEN") < built.sql.index("EXISTS")
-    assert built.params[-1] == 1                     # breach value bound last
+    assert built.params[-1] == "1"                   # breach value bound last
     assert len(built.params) == 3
 
 

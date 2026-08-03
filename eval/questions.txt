@@ -1,0 +1,120 @@
+# CORA question set — the acceptance list for the NL -> KPI pipeline.
+#
+# One question per line. Blank lines and '#' comments are ignored.
+# Run with:  python tools/eval_questions.py
+#
+# Sections are comments only; the harness treats every question the same way.
+
+# --- availability / major incidents -----------------------------------------
+Give me Incident Ids which impacted availability percentage
+Which month has the Lowest and Highest availability percentage in 2026
+Give MI count by status for CYTD
+Give me MI count by Closed, resolved and Open status
+Give me MI count by Sector
+Compare this month with previous month availability percentage.
+Give me P2 incident count for CYTD
+Give me P2 incident created for CYTD
+Give me major incident trend for CYTD
+Response SLA percentage by sector for CYTD
+Give me Incident severity distribution.
+
+# --- availability / uptime / MI detail ---------------------------------------
+Give me closed Major Incident count for 2026
+Give me Closed MI count for CYTD
+Which incident has the highest Outage Duration in CYTD
+Give me Closed MI count by sector
+What is response SLA percentage for CYTD
+What is resolution SLA percentage for CYTD
+Give Availability percentage for July 2026
+Give me availability percentage by Month for CYTD
+Current uptime for CYTD
+Give me total downtime hrs for CYTD
+Any downtime today?
+Closed MI Count today
+Show uptime trend.
+Which application has highest availability?
+Give me P1 incident count for CYTD
+Give me availability percentage by sector for CYTD
+Resolution SLA percentage by sector for CYTD
+Give me MTTR Based on Priority for CYTD
+MTTR Based on Priority by month for CYTD
+Give me availability percentage for APAC and AMESA for July 26
+Give me availability percentage by sector for APAC and AMESA for July 26
+Compare availability over the last 90 days
+Show P1 incidents created for CYTD
+Show me availability trend for AMESA
+
+# --- incident volume / aging --------------------------------------------------
+Give me incident count aging more than 90 days
+Give me incident count by priority aging more than 90 days
+Give me closed Incident count by sector for CYTD
+Give me incident count by status for MTD
+Give me incident count which are in open state for CYTD
+Give me Monthly incident summary for CYTD
+How many incidents were created for CYTD
+How many incidents were closed in July 2026
+Compare Incident closed Trend by month for CYTD
+
+# --- comparisons / SLA --------------------------------------------------------
+Which sector has highest number of Open incidents
+Which sector has highest closed incident percentage
+Compare created incidents month over month for last 6 months
+Compare this week vs last week.
+Compare created vs closed incidents for CYTD
+Which assignment group closed the most incidents?
+Give me Incident backlog.
+Give me Incident aging summary.
+Show response SLA.
+Which incidents breached response SLA in this Month
+Compare response SLA by month
+Monthly SLA response trend
+Give me Resolution SLA percentage for CYTD.
+Monthly SLA resolution trend
+Which incidents breached Resolution SLA in this Month
+SLA response by sector
+SLA resolution by sector
+Give me Average resolution time
+Current MTTR for CYTD
+
+# --- MTTR ---------------------------------------------------------------------
+MMTR by sector
+MTTR for MTD
+Give total Preventive Major Incidents for CYTD
+MTTR trend by month for CYTD
+Which month has Lowest and Highest MTTR
+Give MTTR by priority for July
+Give P2 MTTR for CYTD
+Which priority has highest MTTR
+P1 incident count for CYTD
+Medium priority incident for July
+Compare P1 and P2 incidents for CYTD
+
+# --- dimensions: CI, service area, vendor, country, assignment group ----------
+Which configuration items have the most incidents
+Top affected configuration items.
+Highest incident generating CI.
+Which service area has most incidents?
+Give me Incidents caused by change
+Compare incidents this month vs last month.
+Compare incident volume by year for 2025 and 2026.
+Give me AMESA incident count for MTD
+Which sector has the highest incident count and Resolution SLA
+Which incident has Highest resolution hrs
+Which country has more number of incidents
+Give me incidents by vendor
+Which vendor has the best resolution SLA
+Compare AMESA vs APAC for incident volume, SLA, and MTTR over the last six months
+Which sector has the highest incidents
+Compare sectors by incident count.
+Which assignment group performs best to resolve incidents
+Which quarter has the highest incident volume
+Give me incidents with more than 100 hrs resolution time
+Give me total number of resolved incidents by sector for 2026
+What is average SLA resolution for P1 incidents
+Give me average SLA by priority for July
+
+# --- cross-entity: change -> incident (multi-hop, needs the join graph) -------
+Did emergency changes last month result in any major incidents? If so, which business units were affected the most and what were the business impacts?
+Which emergency changes had the highest failure rates, and did they lead to recurring incidents or prolonged outages?
+Show me the changes that caused the largest increase in incident volume, and identify the teams responsible.
+Which major incidents were preceded by failed or emergency changes within the previous seven days

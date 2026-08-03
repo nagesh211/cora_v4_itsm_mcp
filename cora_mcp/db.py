@@ -254,16 +254,13 @@ def _redact(dsn: str) -> str:
     return dsn
 
 
-async def execute(
-    dialect: str,
-    connection: Optional[str],
-    sql: str,
-    params: List[Any],
-    limit: int = 200,
-) -> Dict[str, Any]:
-    """Execute SQL and return ``{columns, rows, rowcount, truncated}``.
+def _preflight(dialect: str, connection: Optional[str], sql: str,
+               params: List[Any]) -> Tuple[str, str, List[Any]]:
+    """Shared front half of :func:`execute` and :func:`validate`.
 
-    Raises DBNotConfigured / UnsupportedDialect / DBError on failure.
+    Checks the dialect/driver/DSN, runs the sqlglot syntax gate, and converts
+    gen_query's ``%s`` form to asyncpg's ``$n``. Returns ``(dsn, sql, params)``
+    ready to prepare.
     """
     if dialect != "postgres":
         raise UnsupportedDialect(
@@ -290,6 +287,82 @@ async def execute(
         aq, ap = to_asyncpg(sql, params)
     else:
         aq, ap = sql, []
+    return dsn, aq, ap
+
+
+# ---------------------------------------------------------------------------
+# Validation without execution
+# ---------------------------------------------------------------------------
+# Three layers guard a query, each catching what the one before it cannot:
+#
+#   1. ``sql_builder`` / ``adhoc.preflight`` — every identifier must exist in
+#      ``schema_v3.yaml``. Catches a hallucinated name, but the YAML is a *cached
+#      description* of the database and can drift from it.
+#   2. ``sql_validate`` — sqlglot parses the text. Catches malformed SQL, but knows
+#      nothing about which tables and columns actually exist.
+#   3. **this** — Postgres itself parse-analyzes the statement. A ``Parse`` resolves
+#      every table, column and operator and builds a plan, so a column dropped or
+#      renamed since the YAML was written fails HERE with the engine's own message.
+#
+# Layer 3 already runs inside :func:`execute` (``con.prepare`` is a server-side
+# Parse+Describe). What was missing is the ability to run it *on its own* — to
+# check a query is still valid without paying to run it. That is what
+# :func:`validate` adds, and it is what lets ``tools/check_sql_health.py`` sweep
+# every KPI config in seconds without touching a row.
+async def validate(
+    dialect: str,
+    connection: Optional[str],
+    sql: str,
+    params: List[Any],
+    plan: bool = False,
+) -> Dict[str, Any]:
+    """Parse-analyze ``sql`` on the server **without executing it**.
+
+    Returns ``{"ok": True, "param_types": [...], "plan": ..., "plan_rows": ...}``.
+    Raises the same errors as :func:`execute` — :class:`DBError` carries Postgres'
+    own message (``column "x" does not exist``), which is exactly the drift report
+    we want.
+
+    ``plan=True`` additionally runs ``EXPLAIN``, whose estimated row count is what
+    :mod:`cora_mcp.fanout` uses to detect a join that multiplies rows.
+    """
+    dsn, aq, ap = _preflight(dialect, connection, sql, params)
+    log.info("validating on %s/%s: %s", connection, dialect, aq.replace("\n", " "))
+    pool = await _get_pool(dsn)
+    try:
+        async with pool.acquire() as con:
+            stmt = await con.prepare(aq)          # Parse+Describe — no rows read
+            ptypes = [t.name for t in stmt.get_parameters()]
+            out: Dict[str, Any] = {"ok": True, "param_types": ptypes}
+            if plan:
+                coerced = [_coerce_for_pgtype(v, ptypes[i] if i < len(ptypes) else None)
+                           for i, v in enumerate(ap)]
+                # EXPLAIN (not ANALYZE) — plans the statement, never runs it.
+                rows = await con.fetch("EXPLAIN (FORMAT JSON) " + aq, *coerced)
+                import json as _json
+                raw = rows[0][0] if rows else None
+                doc = _json.loads(raw) if isinstance(raw, str) else raw
+                node = (doc or [{}])[0].get("Plan", {}) if doc else {}
+                out["plan"] = doc
+                out["plan_rows"] = node.get("Plan Rows")
+            return out
+    except Exception as exc:
+        log.warning("validation failed: %s", exc)
+        raise DBError(str(exc)) from exc
+
+
+async def execute(
+    dialect: str,
+    connection: Optional[str],
+    sql: str,
+    params: List[Any],
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """Execute SQL and return ``{columns, rows, rowcount, truncated}``.
+
+    Raises DBNotConfigured / UnsupportedDialect / DBError on failure.
+    """
+    dsn, aq, ap = _preflight(dialect, connection, sql, params)
     log.info("executing on %s/%s: %s", connection, dialect, aq.replace("\n", " "))
     pool = await _get_pool(dsn)
     try:
@@ -297,6 +370,8 @@ async def execute(
             # Prepare so Postgres tells us each parameter's real type, then coerce
             # gen_query's string literals ('1', '2026-06-01 00:00:00', ...) to the
             # Python types asyncpg binds for that type (bool/int/float/datetime).
+            # This is also validation layer 3 (see :func:`validate`): a Parse that
+            # succeeds means every identifier in the SQL exists in the live database.
             stmt = await con.prepare(aq)
             ptypes = [t.name for t in stmt.get_parameters()]
             coerced = [_coerce_for_pgtype(v, ptypes[i] if i < len(ptypes) else None)

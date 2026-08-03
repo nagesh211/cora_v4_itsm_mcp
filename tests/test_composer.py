@@ -180,6 +180,52 @@ def test_date_field_absent_from_every_candidate_is_refused():
     assert "time column" in str(exc.value)
 
 
+def test_a_near_miss_date_field_is_used_rather_than_refused():
+    """The reported failure. A caller asked for `close_date_time`; the anchor calls it
+    `closed_date`. Refusing produced a clarifying question the user could only answer
+    by reading the schema back to us, so the nearest clock is used — and named."""
+    p = composer.plan(predicates=["sla breached"], measure=COUNT_INCIDENTS,
+                      period="last month", date_field="close_date_time")
+    assert p["spec"]["date_field"] == "closed_date"
+    assert any("close_date_time" in n and "closed_date" in n for n in p["notes"])
+    assert "closed_date" in sb.build(p["spec"]).sql
+
+
+def test_a_time_window_sent_as_a_filter_becomes_the_period():
+    """`{"close_date_time": "2026-07-01 to 2026-07-31"}` is a window wearing a filter's
+    clothes. Left as a filter it becomes `WHERE closed_date = '2026-07-01 to
+    2026-07-31'` — zero rows, reported with total confidence."""
+    p = composer.plan(predicates=["sla breached"], measure=COUNT_INCIDENTS,
+                      filters={"close_date_time": "2026-07-01 to 2026-07-31"})
+    assert p["spec"]["date_field"] == "closed_date"
+    assert p["spec"]["period"] == "2026-07-01 to 2026-07-31"
+    assert not [f for f in p["spec"]["filters"] if f["field"] == "closed_date"]
+    built = sb.build(p["spec"])
+    assert "BETWEEN" in built.sql
+    assert "2026-07-01 00:00:00" in built.params and "2026-07-31 23:59:59" in built.params
+
+
+def test_the_period_parameter_leaking_into_filters_is_absorbed():
+    """A caller that fills both `period` and `filters={"period": ...}` named one window
+    twice, not a column called "period"."""
+    p = composer.plan(predicates=["sla breached"], measure=COUNT_INCIDENTS,
+                      filters={"period": "last month"})
+    assert p["spec"]["period"] == "last month"
+    assert p["spec"]["filters"] == [f for f in p["spec"]["filters"]
+                                    if f["field"] != "period"]
+    assert any("time window" in n for n in p["notes"])
+
+
+def test_a_real_filter_is_still_refused_when_it_cannot_bind():
+    """Near-miss resolution must not become a licence to guess: a word that names no
+    column keeps the refusal, because dropping it answers a different question."""
+    with pytest.raises(composer.ComposeError) as exc:
+        composer.plan(predicates=["sla breached"], measure=COUNT_INCIDENTS,
+                      filters={"unicorn_date": "2026-07-01 to 2026-07-31"},
+                      period="last month")
+    assert "unicorn_date" in str(exc.value)
+
+
 def test_period_produces_a_bounded_window():
     p = composer.plan(predicates=["major"], measure=COUNT_INCIDENTS, period="last month")
     built = sb.build(p["spec"])

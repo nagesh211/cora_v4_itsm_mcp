@@ -38,7 +38,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from cora_mcp.column_resolver import resolve_column, resolvable_words
+from cora_mcp.column_resolver import (normalize, resolve_column,
+                                      resolve_column_detail, resolvable_words)
 from cora_mcp.logging_config import get_logger
 from cora_mcp.predicate_registry import Predicate, get_registry
 from cora_mcp.schema_loader import get_loader
@@ -58,7 +59,7 @@ class Candidate:
 
     __slots__ = ("table", "free", "direct", "semi", "unbound_predicates",
                  "bound_filters", "unbound_filters", "bound_dims", "unbound_dims",
-                 "bound_select", "unbound_select",
+                 "bound_select", "unbound_select", "approx",
                  "date_field", "measure_ok", "primary_hits", "no_date")
 
     def __init__(self, table: str):
@@ -69,6 +70,7 @@ class Candidate:
         self.unbound_predicates: List[str] = []
         self.bound_filters: Dict[str, str] = {}      # user word -> column
         self.unbound_filters: List[str] = []
+        self.approx: Dict[str, str] = {}             # near-miss word -> column used
         self.bound_dims: Dict[str, str] = {}
         self.unbound_dims: List[str] = []
         self.bound_select: Dict[str, str] = {}       # requested detail column -> column
@@ -188,17 +190,25 @@ def _score_candidate(table: str, preds: List[Predicate], filters: Dict[str, Any]
 
     for word in select or []:
         # roles=() — a listing may legitimately show an id or a timestamp
-        col = resolve_column(table, word, roles=())
+        col, how = resolve_column_detail(table, word, roles=())
         if col:
             cand.bound_select[word] = col
+            if how == "near_miss":
+                cand.approx[word] = col
         else:
             cand.unbound_select.append(word)
     if need_date:
         # An explicit date_field is a requirement, not a hint: "opened last month" and
         # "closed last month" are different questions, so a table that lacks the named
-        # column must not silently answer with a different clock.
+        # column must not silently answer with a different clock. It is resolved rather
+        # than matched literally, so a caller that says `close_date_time` reaches
+        # `closed_date` — the same clock under a different name — instead of being
+        # refused and asked to read the schema back to us.
         if date_field:
-            cand.date_field = date_field if date_field in cols else None
+            col, how = resolve_column_detail(table, date_field, roles=("timestamp",))
+            cand.date_field = col or (date_field if date_field in cols else None)
+            if col and how == "near_miss":
+                cand.approx[date_field] = col
         else:
             cand.date_field = loader.table_time_field(table)
             if not cand.date_field or cand.date_field not in cols:
@@ -209,16 +219,20 @@ def _score_candidate(table: str, preds: List[Predicate], filters: Dict[str, Any]
             cand.measure_ok = False        # cannot honour the period here
 
     for word in filters or {}:
-        col = resolve_column(table, word)
+        col, how = resolve_column_detail(table, word)
         if col:
             cand.bound_filters[word] = col
+            if how == "near_miss":
+                cand.approx[word] = col
         else:
             cand.unbound_filters.append(word)
 
     for word in dimensions or []:
-        col = resolve_column(table, word, roles=("dimension",))
+        col, how = resolve_column_detail(table, word, roles=("dimension",))
         if col:
             cand.bound_dims[word] = col
+            if how == "near_miss":
+                cand.approx[word] = col
         else:
             cand.unbound_dims.append(word)
 
@@ -235,6 +249,69 @@ def _score_candidate(table: str, preds: List[Predicate], filters: Dict[str, Any]
         else:
             cand.unbound_predicates.append(p.name)
     return cand
+
+
+# Words a caller reaches for when it means "the time window" but has no column in mind.
+# `period` itself shows up because the tool's own parameter name leaks into the filter
+# dict when a model fills both.
+_PERIOD_WORDS = frozenset({"period", "time period", "timeframe", "time frame",
+                           "date range", "daterange", "time range", "window",
+                           "date", "dates"})
+
+
+def _time_column_among(word: str, tables: List[str]) -> Optional[str]:
+    """The timestamp column ``word`` names, if it names one on ANY candidate and names
+    nothing else anywhere. A word that resolves to a real dimension somewhere is left
+    alone — only an unambiguously time-shaped word may be lifted out of the filters."""
+    hit: Optional[str] = None
+    for t in tables:
+        as_time = resolve_column(t, word, roles=("timestamp",))
+        if as_time:
+            hit = hit or as_time
+            continue
+        if resolve_column(t, word):
+            return None            # it means a non-time column on some candidate
+    return hit
+
+
+def _lift_date_filters(filters: Dict[str, Any], tables: List[str],
+                       period: Optional[str], date_field: Optional[str]
+                       ) -> Tuple[Dict[str, Any], Optional[str], Optional[str],
+                                  List[str]]:
+    """Move a time window that arrived as a *filter* onto ``period``/``date_field``.
+
+    ``filters={"close_date_time": "2026-07-01 to 2026-07-31"}`` is a date window
+    wearing a filter's clothes. Left alone it becomes ``WHERE closed_date =
+    '2026-07-01 to 2026-07-31'`` — syntactically fine, semantically nonsense, and it
+    returns zero rows with total confidence. Lifting it is the only reading that
+    answers the question that was asked, so it is done here rather than refused.
+
+    Only scalar strings are lifted: a *list* of dates is a genuine ``IN`` over exact
+    days and must stay a filter.
+    """
+    kept: Dict[str, Any] = {}
+    notes: List[str] = []
+    for word, value in (filters or {}).items():
+        col = _time_column_among(word, tables) if isinstance(value, str) else None
+        is_period_word = normalize(word) in _PERIOD_WORDS
+
+        if col is None and not (is_period_word and isinstance(value, str)):
+            kept[word] = value
+            continue
+
+        if col is not None and date_field is None:
+            date_field = word          # resolved per candidate table, like any word
+        if period is None:
+            period = value
+            notes.append(
+                "%r was given as a filter but is a time window, so it was applied as "
+                "the period%s rather than as an equality test."
+                % (word, " on %s" % col if col else ""))
+        else:
+            notes.append(
+                "%r=%r and the period %r both name a time window; the period was used%s."
+                % (word, value, period, " on %s" % col if col else ""))
+    return kept, period, date_field, notes
 
 
 def _refusal(scored: List[Candidate], measure_column: Optional[str],
@@ -370,6 +447,9 @@ def plan(
         raise ComposeError(
             f"no candidate tables for entity {entity!r}; pass `base` explicitly")
 
+    filters, period, date_field, time_notes = _lift_date_filters(
+        filters or {}, candidates, period, date_field)
+
     scored = [_score_candidate(t, preds, filters or {}, dimensions or [],
                                measure_column, bool(period or grain), date_field,
                                select=select)
@@ -416,7 +496,15 @@ def plan(
         spec["dimensions"] = []
         spec["drilldown"] = {"detail_columns": detail}
 
-    notes: List[str] = []
+    notes: List[str] = list(time_notes)
+    if winner.approx:
+        # An approximate match is honoured, never silent: the user asked about a column
+        # by a name the schema does not use, and the answer has to say which one ran.
+        notes.append(
+            "%s does not exist on %s; the closest matching column%s used instead: %s."
+            % (", ".join(repr(w) for w in winner.approx),
+               winner.table, " was" if len(winner.approx) == 1 else "s were",
+               ", ".join("%s -> %s" % (w, c) for w, c in winner.approx.items())))
     if winner.free:
         notes.append(
             "%s already contains only %s, so %s needed no filter."

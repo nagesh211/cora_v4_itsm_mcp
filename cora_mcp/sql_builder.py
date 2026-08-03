@@ -19,7 +19,7 @@ from cora_mcp.date_resolver import resolve_dates
 from cora_mcp.logging_config import get_logger
 from cora_mcp.relationships import NoJoinPathError, get_graph
 from cora_mcp.schema_loader import get_loader
-from cora_mcp import value_resolver
+from cora_mcp import fanout, value_resolver
 
 log = get_logger(__name__)
 
@@ -112,6 +112,12 @@ class BuildResult(BaseModel):
     # Set when a comparison period forced a time bucket the caller didn't ask for,
     # so the answer can say the rows are per-period.
     implicit_grain: Optional[str] = None
+    # Relationship names in the join plan that can return >1 row per base record.
+    fanning_relationships: List[str] = Field(default_factory=list)
+    # How the fan-out was handled (count deduplicated / measured at joined grain /
+    # inflation warning). Surfaced so an answer can state it rather than imply a
+    # precision the join does not have.
+    fanout_note: Optional[str] = None
 
 
 def _norm_spec(spec) -> QuerySpec:
@@ -202,6 +208,7 @@ class _Builder:
     # ---- clauses ---------------------------------------------------------
     def _plan_joins(self, base_fqn: str) -> List[str]:
         if not self.spec.join_with:
+            self._fanning = []
             return []
         targets = []
         for jw in self.spec.join_with:
@@ -216,6 +223,13 @@ class _Builder:
             clauses = self.graph.plan_join(base_fqn, targets)
         except NoJoinPathError as exc:
             raise BuilderError(str(exc)) from exc
+
+        # Which of these edges can multiply base rows? Decided before any measure is
+        # compiled, so _measure_expr can correct count(*) and refuse what it cannot
+        # correct instead of emitting a confidently inflated number.
+        self._fanning = fanout.fanning_relationships(clauses, self.graph, base_fqn)
+        if self._fanning:
+            log.info("join plan can fan out via %s", self._fanning)
 
         jt = (self.spec.join_type or "inner").lower()
         if jt not in ("inner", "left"):
@@ -456,19 +470,38 @@ class _Builder:
     def _measure_expr(self) -> str:
         m = self.spec.measure or Measure(agg="count", column="*")
         alias = m.alias or "value"
+        base_alias = self.scope[0][1]
         if m.expression:  # trusted raw expression from a metric anchor
+            if self._fanning:
+                # The expression came from a KPI config written against a single
+                # table; we cannot rewrite it safely, but the caller must know the
+                # join underneath it can repeat rows.
+                self.fanout_note = (
+                    f"WARNING: this KPI's measure expression is computed over a join "
+                    f"via {', '.join(self._fanning)} that can duplicate rows")
+                log.warning("fan-out under raw measure expression [%s]", self._fanning)
             return f"{m.expression} AS {alias}"
         agg = (m.agg or "count").lower()
         if agg not in _AGGS:
             raise BuilderError(f"agg must be one of {sorted(_AGGS)}")
-        if agg == "count" and (not m.column or m.column == "*"):
-            return f"count(*) AS {alias}"
-        if not m.column:
-            raise BuilderError(f"measure agg {agg} needs a column")
-        col = self._col_ref(m.column)
-        if agg == "count_distinct":
-            return f"count(distinct {col}) AS {alias}"
-        return f"{agg}({col}) AS {alias}"
+
+        col_ref: Optional[str] = None
+        home_is_base = True
+        if not (agg == "count" and (not m.column or m.column == "*")):
+            if not m.column:
+                raise BuilderError(f"measure agg {agg} needs a column")
+            malias, mci = self._resolve_col(m.column)
+            col_ref = self._ref_from(malias, mci, m.column)
+            home_is_base = (malias == base_alias)
+
+        try:
+            sql, note = fanout.correct_measure(agg, col_ref, alias, base_alias,
+                                               self._fanning, home_is_base=home_is_base)
+        except fanout.FanoutError as exc:
+            raise BuilderError(str(exc)) from exc
+        if note:
+            self.fanout_note = note
+        return sql
 
     def _comparison_grain(self) -> str:
         """The grain that puts each compared side on its own row — derived from how
@@ -496,6 +529,8 @@ class _Builder:
         self.semi_joined_tables: List[str] = []
         self.dropped_dimensions: List[str] = []
         self.implicit_grain: Optional[str] = None
+        self._fanning: List[str] = []
+        self.fanout_note: Optional[str] = None
         # Resolved once up front: both _select_and_group (implicit comparison grain)
         # and _where (one or two windows) need it, and _select_and_group runs first.
         self._period_win = resolve_dates(self.spec.period) if self.spec.period else None
@@ -538,7 +573,9 @@ class _Builder:
                            semi_joined_tables=self.semi_joined_tables,
                            date_window=self._date_window,
                            dropped_dimensions=self.dropped_dimensions,
-                           implicit_grain=self.implicit_grain)
+                           implicit_grain=self.implicit_grain,
+                           fanning_relationships=self._fanning,
+                           fanout_note=self.fanout_note)
 
 
 def _guard_readonly(sql: str) -> None:

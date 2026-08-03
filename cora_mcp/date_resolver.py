@@ -473,6 +473,52 @@ class TimeframeNormalizer:
 _PERIOD_RE = r"(quarters?|qtrs?|qrtrs?|months?|weeks?|years?|mos?|wks?|yrs?)"
 
 
+# ---------------------------------------------------------------------------
+# Number words
+# ---------------------------------------------------------------------------
+# People write "over the last six months" as readily as "last 6 months", and every
+# quantity pattern below is written against digits. Rather than double each of
+# those regexes, spelled-out numbers are rewritten to digits once, before matching.
+#
+# This matters more than it looks: resolve_dates never fails. An unmatched phrase
+# silently falls back to month-to-date, so "last six months" did not error — it
+# quietly answered for the last two days and looked entirely healthy doing it.
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+# "twenty one", "ninety-nine" — a tens word followed by a units word.
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+         "seventy": 70, "eighty": 80, "ninety": 90}
+_UNITS = {w: n for w, n in _NUMBER_WORDS.items() if 1 <= n <= 9}
+
+_COMPOUND_RE = re.compile(
+    r"\b(" + "|".join(_TENS) + r")[\s-](" + "|".join(_UNITS) + r")\b", re.I)
+_WORD_RE = re.compile(r"\b(" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True))
+                      + r")\b", re.I)
+# "a month ago" / "an hour" — bare articles are quantities too, but only directly
+# in front of a period word, or "a" in "a lot of incidents" would become "1".
+_ARTICLE_RE = re.compile(
+    r"\b(?:a|an)\s+(?=(?:day|week|month|quarter|year|hour)s?\b)", re.I)
+
+
+def normalize_number_words(text: str) -> str:
+    """Rewrite spelled-out quantities to digits: 'last six months' -> 'last 6 months'.
+
+    Idempotent and safe on text that has no number words, so it can be applied
+    unconditionally at the front of the extractors.
+    """
+    if not text:
+        return text
+    s = _COMPOUND_RE.sub(
+        lambda m: str(_TENS[m.group(1).lower()] + _UNITS[m.group(2).lower()]), text)
+    s = _WORD_RE.sub(lambda m: str(_NUMBER_WORDS[m.group(1).lower()]), s)
+    return _ARTICLE_RE.sub("1 ", s)
+
+
 def _period_grain(word: str) -> str:
     """A matched period word (any synonym/plural) -> canonical grain."""
     w = (word or "").strip().lower().rstrip("s")
@@ -491,7 +537,7 @@ class DeterministicExtractor:
         self.today = today or date.today()
 
     def extract(self, text: str) -> Optional[TimeframeIntent]:
-        s = text.lower().strip()
+        s = normalize_number_words(text.lower().strip())
 
         # Absolute range with keywords (allow trailing words).
         _START_EXPR = r"(\S+(?:\s+(?!(?:and|to)\s)\S+)*)"
@@ -518,8 +564,14 @@ class DeterministicExtractor:
             r"|(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"
             r")"
         )
-        RANGE_SEP = r"(?:-|–|—|through|thru|till|until|~)"
-        m = re.search(rf"\b({DATE_TOKEN})\s*{RANGE_SEP}\s*({DATE_TOKEN})\b", s, re.I)
+        # "to" and "and" belong here as well as in the `between X and Y` branch above:
+        # a caller that has already resolved the window writes it bare, as
+        # "2026-07-01 to 2026-07-31", with no leading keyword to match on. Word
+        # separators require surrounding whitespace so they cannot glue two tokens
+        # together; punctuation separators do not.
+        RANGE_SEP = (r"(?:\s*(?:-|–|—|~)\s*"
+                     r"|\s+(?:through|thru|till|until|to|and)\s+)")
+        m = re.search(rf"\b({DATE_TOKEN}){RANGE_SEP}({DATE_TOKEN})\b", s, re.I)
         if m:
             start_expr = m.group(1).strip()
             end_expr = m.group(2).strip()
@@ -639,6 +691,18 @@ class DeterministicExtractor:
             end = add_months(start, 3) - timedelta(days=1)
             return TimeframeIntent(kind="absolute", start_expr=start.isoformat(),
                                    end_expr=end.isoformat())
+
+        # A single ISO date or ISO month. These MUST precede the bare-year branch:
+        # ``\b(20\d{2})\b`` matches the year inside "2026-07-05", so a request for one
+        # day used to be answered for the whole of 2026 — a 365x wider window,
+        # reported as a match.
+        m = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", s)
+        if m:
+            return TimeframeIntent(kind="relative", grain="day",
+                                   start_expr=m.group(1), end_expr=m.group(1))
+        m = re.search(r"\b(\d{4}-\d{2})\b", s)
+        if m:
+            return TimeframeIntent(kind="absolute", start_expr=m.group(1))
 
         # Bare year.
         m = re.search(r"\b(20\d{2}|19\d{2})\b", s)

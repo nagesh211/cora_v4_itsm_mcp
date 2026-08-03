@@ -65,6 +65,13 @@ class RelationshipGraph:
     def tables(self) -> List[str]:
         return sorted(self._adj.keys())
 
+    def relationship(self, name: str) -> Optional[dict]:
+        """One declared edge by name — needed by :mod:`cora_mcp.fanout`, which has
+        to read the edge's ``cardinality`` to decide whether a join can multiply
+        rows. Returns ``None`` for an unknown name, which callers must treat as the
+        unsafe case rather than the safe one."""
+        return self._by_name.get(name)
+
     # ---- planning --------------------------------------------------------
     def _bfs(self, base: str, target: str) -> Optional[List[Tuple[str, str, dict]]]:
         """Shortest path base->target as a list of (from_fqn, to_fqn, rel)."""

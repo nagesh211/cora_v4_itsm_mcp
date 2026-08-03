@@ -1,0 +1,1902 @@
+[
+  {
+    "question": "Give me Incident Ids which impacted availability percentage",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which month has the Lowest and Highest availability percentage in 2026",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "in 2026",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give MI count by status for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me MI count by Closed, resolved and Open status",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me MI count by Sector",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare this month with previous month availability percentage.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "this month with previous month",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me P2 incident count for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me P2 incident created for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me major incident trend for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Response SLA percentage by sector for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Incident severity distribution.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me closed Major Incident count for 2026",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for 2026",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Closed MI count for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which incident has the highest Outage Duration in CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Closed MI count by sector",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "What is response SLA percentage for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "What is resolution SLA percentage for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give Availability percentage for July 2026",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for July 2026",
+        "detail": "2026-07-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me availability percentage by Month for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Current uptime for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me total downtime hrs for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Any downtime today?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "today",
+        "detail": "2026-08-02..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Closed MI Count today",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "today",
+        "detail": "2026-08-02..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Show uptime trend.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which application has highest availability?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me P1 incident count for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me availability percentage by sector for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Resolution SLA percentage by sector for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me MTTR Based on Priority for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "MTTR Based on Priority by month for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me availability percentage for APAC and AMESA for July 26",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for July 26",
+        "detail": "2026-07-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me availability percentage by sector for APAC and AMESA for July 26",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for July 26",
+        "detail": "2026-07-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare availability over the last 90 days",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "over the last 90 days",
+        "detail": "2026-05-05..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Show P1 incidents created for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Show me availability trend for AMESA",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incident count aging more than 90 days",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incident count by priority aging more than 90 days",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me closed Incident count by sector for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incident count by status for MTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "MTD",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incident count which are in open state for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Monthly incident summary for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "How many incidents were created for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "How many incidents were closed in July 2026",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "in July 2026",
+        "detail": "2026-07-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare Incident closed Trend by month for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which sector has highest number of Open incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which sector has highest closed incident percentage",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare created incidents month over month for last 6 months",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "month over month for last 6 months",
+        "detail": "2026-02-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare this week vs last week.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "this week vs last week",
+        "detail": "previous 2026-07-26..2026-08-01 vs current 2026-08-02..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare created vs closed incidents for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which assignment group closed the most incidents?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Incident backlog.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Incident aging summary.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Show response SLA.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which incidents breached response SLA in this Month",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "this Month",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare response SLA by month",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Monthly SLA response trend",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Resolution SLA percentage for CYTD.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Monthly SLA resolution trend",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which incidents breached Resolution SLA in this Month",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "this Month",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "SLA response by sector",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "SLA resolution by sector",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Average resolution time",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Current MTTR for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "MMTR by sector",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "MTTR for MTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "MTD",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give total Preventive Major Incidents for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "MTTR trend by month for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which month has Lowest and Highest MTTR",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give MTTR by priority for July",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give P2 MTTR for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which priority has highest MTTR",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "P1 incident count for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Medium priority incident for July",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare P1 and P2 incidents for CYTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "CYTD",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which configuration items have the most incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Top affected configuration items.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Highest incident generating CI.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which service area has most incidents?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me Incidents caused by change",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare incidents this month vs last month.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "this month vs last month",
+        "detail": "previous 2026-07-01..2026-07-31 vs current 2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare incident volume by year for 2025 and 2026.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for 2025 and 2026",
+        "detail": "2025-01-01..2025-12-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me AMESA incident count for MTD",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "MTD",
+        "detail": "2026-08-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which sector has the highest incident count and Resolution SLA",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which incident has Highest resolution hrs",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which country has more number of incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incidents by vendor",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which vendor has the best resolution SLA",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare AMESA vs APAC for incident volume, SLA, and MTTR over the last six months",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "over the last six months",
+        "detail": "2026-02-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which sector has the highest incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Compare sectors by incident count.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which assignment group performs best to resolve incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which quarter has the highest incident volume",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me incidents with more than 100 hrs resolution time",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me total number of resolved incidents by sector for 2026",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "for 2026",
+        "detail": "2026-01-01..2026-08-02"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "What is average SLA resolution for P1 incidents",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Give me average SLA by priority for July",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Did emergency changes last month result in any major incidents? If so, which business units were affected the most and what were the business impacts?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": "last month",
+        "detail": "2026-07-01..2026-07-31"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which emergency changes had the highest failure rates, and did they lead to recurring incidents or prolonged outages?",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Show me the changes that caused the largest increase in incident volume, and identify the teams responsible.",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  },
+  {
+    "question": "Which major incidents were preceded by failed or emergency changes within the previous seven days",
+    "stages": [
+      {
+        "stage": "dates",
+        "ok": true,
+        "period": null,
+        "detail": "no time phrase; the KPI's default window applies"
+      },
+      {
+        "stage": "route",
+        "ok": null,
+        "detail": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+      }
+    ],
+    "status": "partial",
+    "stopped_at": "route",
+    "reason": "skipped: no modules loaded (OpenSearch meta index unreachable)"
+  }
+]

@@ -16,10 +16,13 @@ _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from cora_mcp.column_resolver import resolve_column, resolvable_words  # noqa: E402
+from cora_mcp.column_resolver import (resolve_column,  # noqa: E402
+                                      resolve_column_detail, resolvable_words)
 
 INCIDENTS = "itsm_incident.tbl_all_incidents"
 MAJOR_SLA = "itsm_availability.tbl_tableau_major_incdnt"
+INCIDENT_SLA = "itsm_incident.tbl_incident_sla"
+SLA_RESOLUTION = "itsm_incident.tbl_sla_resolution"
 
 
 @pytest.mark.parametrize("word,expected", [
@@ -78,6 +81,54 @@ def test_roles_restrict_group_by_targets():
 
 def test_unknown_table_resolves_to_none():
     assert resolve_column("nope.nope", "business") is None
+
+
+# ---------------------------------------------------------------------------
+# near misses — a name that differs only by inflection or timestamp precision
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("table,word,expected", [
+    # the reported failure: `close_date_time` named a clock the table calls `closed_date`
+    (INCIDENT_SLA, "close_date_time", "closed_date"),
+    (INCIDENT_SLA, "create_date", "created_date"),
+    (INCIDENTS, "opened_date", "open_date"),
+    (INCIDENTS, "resolve_date_time", "resolved_date_time"),
+])
+def test_inflection_and_precision_variants_resolve(table, word, expected):
+    """Refusing a typo-grade difference costs the user a round trip they can only
+    answer by reading the schema back to us, so it is resolved instead — and the
+    caller is told, via the `near_miss` marker, which column actually ran."""
+    assert resolve_column(table, word) == expected
+    assert resolve_column_detail(table, word)[1] == "near_miss"
+
+
+def test_the_nearest_clock_wins_when_several_are_close():
+    """A table carrying both precisions must map each request to its own: answering
+    `close_date_time` with the date-only column when the timestamp exists would
+    quietly change the boundaries of every window."""
+    assert resolve_column(SLA_RESOLUTION, "close_date_time") == "closed_date_time"
+    assert resolve_column(SLA_RESOLUTION, "close_date") == "closed_date"
+
+
+def test_a_near_miss_never_crosses_to_a_different_subject():
+    """`closed` and `created` are different clocks; a shared shape is not a match."""
+    assert resolve_column(INCIDENT_SLA, "closure_timestamp") is None
+    assert resolve_column(INCIDENTS, "unicorn_date") is None
+
+
+def test_a_near_miss_needs_both_a_subject_and_a_matching_shape():
+    """'date time' names no subject, and a bare 'closed' is not evidence enough to
+    pick a timestamp — both must stay unresolved rather than land on a plausible
+    neighbour."""
+    assert resolve_column(INCIDENT_SLA, "date time") is None
+    assert resolve_column(INCIDENT_SLA, "closed") is None
+
+
+def test_exact_and_declared_names_are_never_reported_as_approximate():
+    """Only a genuine near miss is worth warning the user about — a name the schema
+    itself declares is an exact answer and must not be caveated as a guess."""
+    assert resolve_column_detail(INCIDENTS, "business_name")[1] == "exact"
+    assert resolve_column_detail(INCIDENTS, "sector")[1] == "vocabulary"
+    assert resolve_column_detail(INCIDENTS, "business")[1] in ("alias", "suffix")
 
 
 def test_resolvable_words_includes_names_and_vocabulary():

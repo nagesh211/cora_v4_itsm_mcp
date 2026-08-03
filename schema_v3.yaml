@@ -4,6 +4,46 @@ modules:
   code: INONE
   is_date_applicable: true
   description: this dataset contains information about incident,change,problem,Service requests, assets (CMDB); also it has calculations related various ITSM metrics.
+  relationships:
+  - name: incident_caused_by_change
+    description: Incidents linked to the change that caused them.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_change.tbl_change
+    via: itsm.tbl_incident_change_relation
+    left_on:
+      left_col: incident_system_id
+      via_col: incident_system_id
+    right_on:
+      right_col: change_system_id
+      via_col: change_system_id
+    const:
+      col: type
+      value: Caused By Change
+  - name: incident_has_problem
+    description: Incidents linked to a related problem record.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_problem.tbl_problem
+    via: itsm.tbl_incident_problem_relation
+    left_on:
+      left_col: incident_system_id
+      via_col: incident_system_id
+    right_on:
+      right_col: problem_system_id
+      via_col: problem_system_id
+  - name: release_causes_change
+    description: Releases joined to their changes by change_id.
+    left: itsm_release.tbl_pepops_release_mgmt
+    right: itsm_change.tbl_change
+    join_on:
+      left_col: change_id
+      right_col: change_id
+  - name: incident_sla_resolution
+    description: Incidents joined to their SLA resolution rows.
+    left: itsm_incident.tbl_all_incidents
+    right: itsm_incident.tbl_sla_resolution
+    join_on:
+      left_col: incident_system_id
+      right_col: incident_system_id
   entities:
   - name: incident
     tables:
@@ -112,6 +152,16 @@ modules:
       - name: location_name
         type: varchar
         role: dimension
+      - name: major_incident_indicator
+        type: boolean
+        role: dimension
+        canonical: major incident
+        alias: major incident
+        description: flags an incident as major. Restored to the schema after it was
+          found missing while the database still had it - predicates.json binds the
+          'major_incident' predicate to this column, and without the declaration that
+          binding was dead and every major-incident question had to fall back to
+          tbl_major_incidents.
       - name: open_date
         type: date
         role: timestamp
