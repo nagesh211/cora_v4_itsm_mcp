@@ -34,7 +34,7 @@ import json
 import os
 import re
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from cora_mcp.logging_config import get_logger
 
@@ -43,6 +43,12 @@ log = get_logger(__name__)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.normpath(os.path.join(_HERE, ".."))
 DEFAULT_PREDICATES_PATH = os.path.join(_ROOT, "predicates.json")
+# Machine-written breadth layer; absent is normal (nothing generated yet).
+DEFAULT_GENERATED_PATH = os.path.join(_ROOT, "predicates.generated.json")
+
+# Distinguishes "caller did not mention generated_path" (use the default) from an
+# explicit generated_path=None (load the curated file alone — what tests want).
+_UNSET = object()
 
 _SEP = re.compile(r"[\s_\-]+")
 
@@ -68,16 +74,25 @@ class Binding:
     breached" must resolve to the table covering *both* the response and resolution
     clocks, not to whichever single-clock table happens to sort first. Without this the
     tie-break is arbitrary and the answer silently narrows.
+
+    ``note`` is maintainer-facing (how the values were verified). ``caveat`` is
+    **user-facing**: the way this binding is knowingly not an exact expression of the
+    concept — e.g. ``availability_impacting`` cannot reproduce the availability KPI's
+    hypercare / non-IT exclusions because a condition supports neither ``IS NULL`` nor a
+    subquery, so its listing is a small superset. :func:`cora_mcp.composer.plan` copies
+    it into ``composition.notes`` for whichever binding actually ran, so the answer says
+    so instead of presenting a superset as exact.
     """
 
-    __slots__ = ("table", "conditions", "note", "primary")
+    __slots__ = ("table", "conditions", "note", "primary", "caveat")
 
     def __init__(self, table: str, conditions: List[dict], note: Optional[str] = None,
-                 primary: bool = False):
+                 primary: bool = False, caveat: Optional[str] = None):
         self.table = table
         self.conditions = conditions or []
         self.note = note
         self.primary = bool(primary)
+        self.caveat = caveat
 
     @property
     def is_free(self) -> bool:
@@ -113,7 +128,8 @@ class Predicate:
                 raise PredicateConfigError(
                     f"predicate {name!r} has a binding with no table")
             self._bindings[tbl] = Binding(tbl, b.get("conditions") or [], b.get("note"),
-                                          primary=b.get("primary", False))
+                                          primary=b.get("primary", False),
+                                          caveat=b.get("caveat"))
 
     def binding_for(self, table: str) -> Optional[Binding]:
         """The binding for ``table``, or None if this predicate cannot bind there."""
@@ -132,30 +148,101 @@ class Predicate:
 
 
 class PredicateRegistry:
-    def __init__(self, path: Optional[str] = None):
+    """Two layers, loaded generated-first then curated-on-top.
+
+    ``predicates.generated.json`` (optional, written by ``tools/gen_predicates.py``)
+    supplies BREADTH: one predicate per measured (column, value) across every table that
+    carries the pair. It exists because the hand-written file covered 11 of 31 tables —
+    two whole entities had no qualifier vocabulary, which is how a question resolves to
+    the nearest predicate that happens to exist instead of the right one.
+
+    ``predicates.json`` supplies JUDGMENT and always wins: business synonyms a generator
+    cannot invent (``mi``, ``sev1``, ``out of sla``, ``risky change``), FREE bindings
+    ("every row of this table already is a major incident"), composite scopes, and
+    cross-table unification where the stored type differs per table.
+
+    The two layers have deliberately different strictness. A duplicate synonym inside the
+    curated file is a **config error** and raises — two hand-written predicates claiming
+    one phrase means a question silently gets one of two populations. A generated term
+    that collides with anything already claimed is **dropped and logged**: the generated
+    file is machine output over hundreds of values, and a collision there must never stop
+    the service from starting. Every drop is retrievable via :meth:`shadowed_terms` so
+    the coverage report can show what the overlay is masking.
+    """
+
+    def __init__(self, path: Optional[str] = None,
+                 generated_path: Optional[str] = _UNSET):
         self.path = path or DEFAULT_PREDICATES_PATH
+        self.generated_path = (DEFAULT_GENERATED_PATH if generated_path is _UNSET
+                               else generated_path)
         self._by_name: Dict[str, Predicate] = {}
         self._index: Dict[str, str] = {}      # normalized synonym/name -> predicate name
+        self._generated: set = set()          # names that came from the generated layer
+        self._shadowed: Dict[str, Tuple[str, str]] = {}   # term -> (dropped_from, kept)
         self._load()
 
     def _load(self) -> None:
+        # 1) generated layer — breadth, never fatal
+        if self.generated_path and os.path.isfile(self.generated_path):
+            gen = json.load(open(self.generated_path, encoding="utf-8")) or {}
+            for name, spec in (gen.get("predicates") or {}).items():
+                try:
+                    pred = Predicate(name, spec or {})
+                except PredicateConfigError as exc:
+                    log.warning("skipping generated predicate %r: %s", name, exc)
+                    continue
+                self._by_name[name] = pred
+                self._generated.add(name)
+                self._claim(name, [name, *pred.synonyms], strict=False)
+            log.info("generated predicates loaded from %s: %d",
+                     self.generated_path, len(self._generated))
+
+        # 2) curated layer — judgment, wins every conflict
         if not os.path.isfile(self.path):
-            log.warning("no predicates.json at %s; predicate resolution disabled", self.path)
+            log.warning("no predicates.json at %s; curated overlay is absent", self.path)
             return
         doc = json.load(open(self.path, encoding="utf-8")) or {}
-        for name, spec in (doc.get("predicates") or {}).items():
+        curated = (doc.get("predicates") or {})
+        for name, spec in curated.items():
             pred = Predicate(name, spec or {})
             self._by_name[name] = pred
-            for term in [name, *pred.synonyms]:
-                n = normalize(term)
-                prev = self._index.get(n)
-                if prev is not None and prev != name:
-                    raise PredicateConfigError(
-                        f"synonym {term!r} maps to both {prev!r} and {name!r}")
+            self._generated.discard(name)     # a curated entry of the same name replaces
+            # Take every term for the curated predicate, evicting a generated claim.
+            self._claim(name, [name, *pred.synonyms], strict=True,
+                        curated_names=set(curated))
+        log.info("predicates loaded: %d predicate(s) (%d generated, %d curated), "
+                 "%d term(s), %d binding(s), %d shadowed term(s)",
+                 len(self._by_name), len(self._generated), len(curated),
+                 len(self._index), sum(len(p.tables()) for p in self._by_name.values()),
+                 len(self._shadowed))
+
+    def _claim(self, name: str, terms: List[str], strict: bool,
+               curated_names: Optional[set] = None) -> None:
+        """Point every term at ``name``.
+
+        ``strict`` (the curated layer) raises when the term is already owned by another
+        CURATED predicate — that is an authoring mistake worth failing loudly. A term
+        held by a generated predicate is simply taken over, because the curated phrasing
+        is the one a user actually says."""
+        for term in terms:
+            n = normalize(term)
+            if not n:
+                continue
+            prev = self._index.get(n)
+            if prev is None or prev == name:
                 self._index[n] = name
-        log.info("predicates loaded: %d predicate(s), %d term(s), %d binding(s)",
-                 len(self._by_name), len(self._index),
-                 sum(len(p.tables()) for p in self._by_name.values()))
+                continue
+            prev_is_curated = curated_names is not None and prev in curated_names
+            if strict and prev_is_curated:
+                raise PredicateConfigError(
+                    f"synonym {term!r} maps to both {prev!r} and {name!r}")
+            if strict:                     # curated evicts a generated claim
+                self._shadowed[n] = (prev, name)
+                self._index[n] = name
+                log.debug("curated %r takes term %r from generated %r", name, term, prev)
+            else:                          # generated yields to whatever holds it
+                self._shadowed[n] = (name, prev)
+                log.debug("generated %r yields term %r to %r", name, term, prev)
 
     # ---- lookup ----------------------------------------------------------
     def get(self, name: str) -> Optional[Predicate]:
@@ -169,6 +256,22 @@ class PredicateRegistry:
 
     def names(self) -> List[str]:
         return sorted(self._by_name)
+
+    def is_generated(self, name: str) -> bool:
+        """True when this predicate came from the machine-written breadth layer and no
+        curated entry replaced it. Callers use it to present the curated vocabulary
+        first — a generated name like ``type_description_emergency`` is correct but is
+        not what a person says."""
+        return name in self._generated
+
+    def curated_names(self) -> List[str]:
+        return sorted(n for n in self._by_name if n not in self._generated)
+
+    def shadowed_terms(self) -> Dict[str, Tuple[str, str]]:
+        """{term -> (predicate that lost it, predicate that holds it)} — every phrase one
+        layer gave up. Reported by ``--coverage`` so masking is visible rather than a
+        silent behaviour difference between two deployments."""
+        return dict(self._shadowed)
 
     def for_entity(self, entity: str) -> List[Predicate]:
         return [p for p in self._by_name.values() if p.entity == entity]
@@ -265,17 +368,98 @@ async def verify(connection: str = "vtx5", dialect: str = "postgres") -> Dict[st
     return report
 
 
+def coverage() -> Dict[str, Any]:
+    """Which tables and scope columns have no predicate — offline, schema-only.
+
+    Exists because the gap was invisible. An audit found the hand-written file covering
+    11 of 31 declared tables, and nothing reported that: a question about an uncovered
+    table simply resolved to the nearest predicate that did exist, which is how
+    "incident ids which impacted availability percentage" came back as major incidents.
+
+    Reports rather than judges — a table legitimately has no predicate (a join table, a
+    company lookup) — so this is for review, not a build failure. ``--verify`` is the
+    gate; this is the map.
+    """
+    from cora_mcp.schema_loader import get_loader
+    try:
+        from tools.gen_predicates import _is_scope_column
+    except Exception:                        # tools/ not importable (installed package)
+        _is_scope_column = None
+
+    loader = get_loader()
+    reg = get_registry()
+    bound_tables = {b.table for n in reg.names() for b in reg.get(n).bindings()}
+    bound_cols = {(b.table, c["field"]) for n in reg.names()
+                  for b in reg.get(n).bindings() for c in b.conditions}
+
+    tables: List[Dict[str, Any]] = []
+    for _mod, slug, ent in loader.all_entities():
+        for t in ent.get("tables") or []:
+            fqn = t.get("name")
+            cols = [c.get("name") for c in t.get("columns") or []
+                    if (c.get("role") or "dimension") == "dimension"]
+            scope_cols = ([c for c in cols if _is_scope_column(c)]
+                          if _is_scope_column else [])
+            tables.append({
+                "table": fqn,
+                "entity": ent.get("name"),
+                "covered": fqn in bound_tables,
+                "scope_columns": scope_cols,
+                "uncovered_scope_columns": [c for c in scope_cols
+                                            if (fqn, c) not in bound_cols],
+            })
+    uncovered = [t for t in tables if not t["covered"]]
+    return {
+        "tables": tables,
+        "table_count": len(tables),
+        "covered_tables": len(tables) - len(uncovered),
+        "uncovered_tables": [t["table"] for t in uncovered],
+        "curated": len(reg.curated_names()),
+        "generated": len(reg.names()) - len(reg.curated_names()),
+        "shadowed_terms": reg.shadowed_terms(),
+    }
+
+
 def _main() -> int:  # pragma: no cover - CLI helper
     import argparse
     import asyncio
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--verify", action="store_true",
-                    help="re-measure every binding against the live database")
+                    help="re-measure every binding against the live database "
+                         "(exits non-zero on a mismatch — use this as the CI gate)")
+    ap.add_argument("--coverage", action="store_true",
+                    help="report tables and scope columns with no predicate (offline)")
     ap.add_argument("--connection", default="vtx5")
     args = ap.parse_args()
 
     reg = get_registry()
+
+    if args.coverage:
+        rep = coverage()
+        print("%d predicate(s): %d curated, %d generated"
+              % (len(reg.names()), rep["curated"], rep["generated"]))
+        print("tables: %d declared, %d with at least one predicate\n"
+              % (rep["table_count"], rep["covered_tables"]))
+        print("%-46s %-18s %s" % ("TABLE", "ENTITY", "STATUS"))
+        for t in rep["tables"]:
+            if t["covered"] and not t["uncovered_scope_columns"]:
+                status = "covered"
+            elif t["covered"]:
+                status = "partial — no predicate on: %s" % ", ".join(
+                    t["uncovered_scope_columns"][:6])
+            elif t["scope_columns"]:
+                status = "NO PREDICATE — scope columns present: %s" % ", ".join(
+                    t["scope_columns"][:6])
+            else:
+                status = "no predicate (no scope column — expected for a join/lookup)"
+            print("%-46s %-18s %s" % (t["table"], t["entity"], status))
+        if rep["shadowed_terms"]:
+            print("\nterms one layer gave up (curated wins):")
+            for term, (lost, kept) in sorted(rep["shadowed_terms"].items()):
+                print("   %-34s %s -> %s" % (term, lost, kept))
+        return 0
+
     if not args.verify:
         for name in reg.names():
             p = reg.get(name)

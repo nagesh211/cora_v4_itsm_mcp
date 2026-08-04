@@ -59,7 +59,10 @@ modules:
         role: dimension
         canonical: is active
         alias: is active
-        possible_values: ['NO', 'YES']
+        possible_values:
+        - Infrastructure Services
+        - Security & Compliance
+        - Application Services
       - name: assignment_group_name
         type: varchar
         role: dimension
@@ -110,7 +113,8 @@ modules:
         role: dimension
         canonical: exception status
         alias: exception status
-        possible_values: [Approved]
+        possible_values:
+        - Approved
       - name: full_name
         type: varchar
         role: dimension
@@ -157,11 +161,7 @@ modules:
         role: dimension
         canonical: major incident
         alias: major incident
-        description: flags an incident as major. Restored to the schema after it was
-          found missing while the database still had it - predicates.json binds the
-          'major_incident' predicate to this column, and without the declaration that
-          binding was dead and every major-incident question had to fall back to
-          tbl_major_incidents.
+        description: flags an incident as major. Restored to the schema after it was found missing while the database still had it - predicates.json binds the 'major_incident' predicate to this column, and without the declaration that binding was dead and every major-incident question had to fall back to tbl_major_incidents.
       - name: open_date
         type: date
         role: timestamp
@@ -172,7 +172,12 @@ modules:
         canonical: priority
         alias: priority
         deeper_insights: true
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
       - name: region_name
         type: text []
         role: dimension
@@ -185,7 +190,7 @@ modules:
         canonical: reassignment count
         alias: reassignment count
       - name: reopen_count
-        type: numeric
+        type: varchar
         role: measure
       - name: reopen_date
         type: date
@@ -213,7 +218,11 @@ modules:
         canonical: status
         alias: status
         deeper_insights: true
-        possible_values: [ASSIGNED, CANCELED, CLOSED, IN PROGRESS, IN QUEUE, NEW, PENDING, RESOLVED, NOT APPLICABLE, NOT FOUND, NOT PROVIDED]
+        possible_values:
+        - CLOSED
+        - CANCELED
+        - OPENED
+        - RESOLVED
       - name: sub_business_name
         type: text []
         role: dimension
@@ -261,7 +270,8 @@ modules:
       - name: exception_status
         type: varchar
         role: dimension
-        possible_values: [Approved]
+        possible_values:
+        - Approved
       - name: full_name
         type: varchar
         role: dimension
@@ -315,7 +325,12 @@ modules:
         role: dimension
         canonical: priority
         alias: priority
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
       - name: reassignment_count
         type: int4
         role: dimension
@@ -351,16 +366,19 @@ modules:
       - name: responsible_group_vendor_name
         type: varchar
         role: dimension
-        possible_values: [NOT FOUND]
+        possible_values:
+        - EVEREST DX
       - name: sla_breached_indicator_type
         type: varchar
         role: dimension
       - name: sla_breached_indicator
-        type: varchar
+        type: int4
         role: dimension
         canonical: sla breached
         alias: sla breached
-        possible_values: ['0', '1', 'NO', 'YES']
+        possible_values:
+        - 0
+        - 1
       - name: sla_duration_hours
         type: numeric
         role: measure
@@ -381,7 +399,9 @@ modules:
         role: dimension
         canonical: sla stage
         alias: sla stage
-        possible_values: [CANCELLED, COMPLETED, IN PROGRESS, PAUSED]
+        possible_values:
+        - COMPLETED
+        - IN_PROGRESS
       - name: sla_start_date
         type: date
         role: timestamp
@@ -391,11 +411,19 @@ modules:
       - name: sla_target
         type: varchar
         role: dimension
-        possible_values: [resolution, response]
+        possible_values:
+        - 1 HOUR
+        - 120 HOURS
+        - 2 HOURS
+        - 24 HOURS
+        - 4 HOURS
+        - 72 HOURS
+        - 8 HOURS
       - name: sla_type_value
         type: varchar
         role: dimension
-        possible_values: [SLA]
+        possible_values:
+        - SLA
       - name: state
         type: varchar
         role: dimension
@@ -404,7 +432,11 @@ modules:
         role: dimension
         canonical: sla status
         alias: sla status
-        possible_values: [PENDING, RESOLVED]
+        possible_values:
+        - CANCELED
+        - CLOSED
+        - OPENED
+        - RESOLVED
       - name: sub_business_name
         type: text []
         role: dimension
@@ -441,12 +473,12 @@ modules:
       - name: type
         type: varchar
         role: dimension
-        possible_values: [Company]
+        possible_values: &id001
+        - Application Services
+        - Infrastructure Services
+        - Security & Compliance
       - name: region_active_indicator
         type: boolean
-        role: dimension
-      - name: hr_sector
-        type: varchar
         role: dimension
     - name: itsm_incident.tbl_sla_response
       description: Incident SLA response data capturing SLA lifecycle timestamps, breach status, durations, responsible group context, and business/region mapping for SLA compliance and performance analysis.
@@ -473,15 +505,26 @@ modules:
       - name: sla_name
         type: varchar
         role: dimension
-        possible_values: [RESPONSE, INCIDENT P4 RESPONSE, INCIDENT P5 RESPONSE]
+        possible_values:
+        - P1 - Response Time SLA
+        - P2 - Response Time SLA
+        - P5 - Response Time SLA
+        - P3 - Response Time SLA
+        - P4 - Response Time SLA
       - name: sla_type_value
         type: varchar
         role: dimension
-        possible_values: [SLA]
+        possible_values:
+        - SLA
       - name: sla_target
         type: varchar
         role: dimension
-        possible_values: [response]
+        possible_values:
+        - 4 HOURS
+        - 2 HOURS
+        - 24 HOURS
+        - 8 HOURS
+        - 1 HOUR
       - name: sla_start_date_time
         type: timestamp
         role: timestamp
@@ -500,11 +543,25 @@ modules:
       - name: sla_stage
         type: varchar
         role: dimension
-        possible_values: [COMPLETED]
+        possible_values:
+        - COMPLETED
       - name: responsible_group
         type: varchar
         role: dimension
-        possible_values: [NOT FOUND, NOT PROVIDED]
+        possible_values:
+        - IT RISK
+        - CORPORATE
+        - PAYROLL SUPPORT
+        - IT SUPPORT - HR
+        - DATA MANAGEMENT
+        - IT SECURITY
+        - CORPORATE SYSTEMS
+        - IT ANALYTICS
+        - APPLICATION SUPPORT
+        - IT SUPPORT
+        - PLATFORM SUPPORT
+        - IT OPERATIONS SUPPORT
+        - FINANCE
       - name: responsible_group_service_area
         type: varchar
         role: dimension
@@ -526,7 +583,8 @@ modules:
       - name: responsible_group_vendor_name
         type: varchar
         role: dimension
-        possible_values: [NOT FOUND]
+        possible_values:
+        - EVEREST DX
       - name: open_date_time
         type: timestamp
         role: timestamp
@@ -580,7 +638,12 @@ modules:
         role: dimension
         canonical: priority
         alias: priority
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
       - name: contact_type
         type: varchar
         role: dimension
@@ -611,7 +674,11 @@ modules:
         role: dimension
         canonical: status
         alias: status
-        possible_values: [CLOSED, PENDING, RESOLVED]
+        possible_values:
+        - CLOSED
+        - CANCELED
+        - OPENED
+        - RESOLVED
       - name: sla_breached_indicator_type
         type: varchar
         role: dimension
@@ -620,7 +687,9 @@ modules:
         role: dimension
         canonical: sla breached
         alias: sla breached
-        possible_values: ['0', '1', 'NO', 'YES']
+        possible_values:
+        - '1'
+        - '0'
       - name: service_offering_configuration_item_name
         type: varchar
         role: dimension
@@ -639,7 +708,31 @@ modules:
       - name: hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [NOT APPLICABLE, SERVICE DESK - LATAM]
+        possible_values:
+        - NOT APPLICABLE
+        - ENTERPRISE SOLUTIONS
+        - 'DXNXT '
+        - DIGITAL ENABLEMENT
+        - DIGITAL SOLUTIONS
+        - DIGITAL TRANSFORMATION
+        - SRE
+        - CISO
+        - 'INSIGHTONE '
+        - NON-IT S&T
+        - FINANCE - HR
+        - ITAM
+        - IT - INFRASTRUCTURE
+        - CORPORATE SOLUTIONS
+        - SERVICE DELIVERY
+        - NON-IT SPECIFIC
+        - DIGITAL LAB
+        - 'INFRA and COLLABORATION '
+        - 'INFOSEC RISK '
+        - 'IT SECURITY '
+        - 'SRE '
+        - ENGINEERING & DELIVERY
+        - FINANCE & CORPORATE
+        - ENGINEERING  DEVELOPMENT
       - name: service_area
         type: varchar
         role: dimension
@@ -647,14 +740,6 @@ modules:
       - name: category_description
         type: varchar
         role: dimension
-      - name: service_classification_value
-        type: varchar
-        role: dimension
-        possible_values: [Business Service, Technical Service]
-      - name: business_criticality_value
-        type: varchar
-        role: dimension
-        possible_values: [2 - somewhat critical, 3 - less critical, 1 - most critical]
       - name: business_name
         type: text []
         role: dimension
@@ -703,11 +788,17 @@ modules:
       - name: sla_type_value
         type: varchar
         role: dimension
-        possible_values: [SLA]
+        possible_values:
+        - RESOLUTION
       - name: sla_target
         type: varchar
         role: dimension
-        possible_values: [resolution]
+        possible_values:
+        - 4 HOURS
+        - 120 HOURS
+        - 24 HOURS
+        - 8 HOURS
+        - 72 HOURS
       - name: sla_start_date_time
         type: timestamp
         role: timestamp
@@ -726,7 +817,8 @@ modules:
       - name: sla_stage
         type: varchar
         role: dimension
-        possible_values: [IN PROGRESS, PAUSED, COMPLETED]
+        possible_values:
+        - COMPLETED
       - name: responsible_group_name
         type: varchar
         role: dimension
@@ -751,7 +843,8 @@ modules:
       - name: responsible_group_vendor_name
         type: varchar
         role: dimension
-        possible_values: [NOT FOUND]
+        possible_values:
+        - EVEREST DX
       - name: open_date_time
         type: timestamp
         role: timestamp
@@ -803,7 +896,12 @@ modules:
       - name: priority_code
         type: varchar
         role: dimension
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
       - name: contact_type
         type: varchar
         role: dimension
@@ -830,7 +928,9 @@ modules:
       - name: status_name
         type: varchar
         role: dimension
-        possible_values: [CLOSED, PENDING, RESOLVED]
+        possible_values:
+        - CLOSED
+        - RESOLVED
       - name: service_offering_configuration_item_name
         type: varchar
         role: dimension
@@ -838,11 +938,13 @@ modules:
         type: varchar
         role: dimension
       - name: sla_breached_indicator
-        type: varchar
+        type: int4
         role: dimension
         canonical: sla breached
         alias: sla breached
-        possible_values: ['YES', 'NO']
+        possible_values:
+        - 0
+        - 1
       - name: hierarchy_1
         type: varchar
         role: dimension
@@ -858,7 +960,31 @@ modules:
       - name: hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [NOT APPLICABLE, SERVICE DESK - LATAM]
+        possible_values:
+        - NOT APPLICABLE
+        - ENTERPRISE SOLUTIONS
+        - 'DXNXT '
+        - DIGITAL ENABLEMENT
+        - DIGITAL SOLUTIONS
+        - DIGITAL TRANSFORMATION
+        - SRE
+        - CISO
+        - NON-IT S&T
+        - 'INSIGHTONE '
+        - FINANCE - HR
+        - ITAM
+        - IT - INFRASTRUCTURE
+        - CORPORATE SOLUTIONS
+        - NON-IT SPECIFIC
+        - SERVICE DELIVERY
+        - 'INFRA and COLLABORATION '
+        - DIGITAL LAB
+        - 'INFOSEC RISK '
+        - 'IT SECURITY '
+        - 'SRE '
+        - ENGINEERING & DELIVERY
+        - FINANCE & CORPORATE
+        - ENGINEERING  DEVELOPMENT
       - name: service_area
         type: varchar
         role: dimension
@@ -866,14 +992,6 @@ modules:
       - name: category_description
         type: varchar
         role: dimension
-      - name: service_classification_value
-        type: varchar
-        role: dimension
-        possible_values: [Business Service, Application Service, Technical Service]
-      - name: business_criticality_value
-        type: varchar
-        role: dimension
-        possible_values: [3 - less critical, 2 - somewhat critical, 1 - most critical]
       - name: business_name
         type: text []
         role: dimension
@@ -914,7 +1032,11 @@ modules:
         canonical: status
         alias: status
         deeper_insights: true
-        possible_values: [CLOSED, PENDING, RESOLVED]
+        possible_values:
+        - CLOSED
+        - CANCELED
+        - OPENED
+        - RESOLVED
       - name: open_date_time
         type: timestamp
         role: timestamp
@@ -927,7 +1049,9 @@ modules:
         canonical: priority
         alias: priority
         deeper_insights: true
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P2
+        - P1
       - name: configuration_item_name
         type: varchar
         role: dimension
@@ -944,7 +1068,9 @@ modules:
         role: dimension
         canonical: is active
         alias: is active
-        possible_values: [1, 0]
+        possible_values:
+        - 1
+        - 0
       - name: resolved_date_time
         type: timestamp
         role: timestamp
@@ -980,7 +1106,31 @@ modules:
       - name: hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [NOT APPLICABLE, SERVICE DESK - LATAM]
+        possible_values:
+        - ENTERPRISE SOLUTIONS
+        - NOT APPLICABLE
+        - 'DXNXT '
+        - DIGITAL SOLUTIONS
+        - DIGITAL ENABLEMENT
+        - DIGITAL TRANSFORMATION
+        - SRE
+        - CISO
+        - 'INSIGHTONE '
+        - NON-IT S&T
+        - FINANCE - HR
+        - ITAM
+        - IT - INFRASTRUCTURE
+        - SERVICE DELIVERY
+        - NON-IT SPECIFIC
+        - CORPORATE SOLUTIONS
+        - DIGITAL LAB
+        - 'INFRA and COLLABORATION '
+        - 'INFOSEC RISK '
+        - 'IT SECURITY '
+        - 'SRE '
+        - ENGINEERING & DELIVERY
+        - FINANCE & CORPORATE
+        - ENGINEERING  DEVELOPMENT
       - name: open_date
         type: date
         role: timestamp
@@ -1094,16 +1244,21 @@ modules:
       - name: combined_business_name
         type: varchar
         role: dimension
-        possible_values: [AMESA, APAC, CGF, EUROPE, LATAM, NORTH AMERICA, PGCS, SODASTREAM]
+        possible_values:
+        - AMESA
+        - APAC
+        - CGF
+        - EUROPE
+        - LATAM
+        - NORTH AMERICA
+        - PGCS
+        - SODASTREAM
       - name: type
         type: varchar
         role: dimension
-        possible_values: [Company]
+        possible_values: *id001
       - name: region_active_indicator
         type: boolean
-        role: dimension
-      - name: hr_sector
-        type: varchar
         role: dimension
   - name: problem
     tables:
@@ -1146,12 +1301,18 @@ modules:
         canonical: caused by preventive maintenance
         alias: caused by preventive maintenance
         deeper_insights: true
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: closure_code
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [APPLIED]
+        possible_values:
+        - RESOLVED
+        - KNOWN ERROR
+        - DUPLICATE
+        - CANCELLED
       - name: closure_notes_text
         type: varchar
         role: dimension
@@ -1200,7 +1361,9 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: ['NO', 'YES']
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: open_date
         type: date
         role: timestamp
@@ -1213,7 +1376,9 @@ modules:
         canonical: priority
         alias: priority
         deeper_insights: true
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P2
+        - P1
       - name: problem_id
         type: varchar
         role: identifier
@@ -1260,19 +1425,33 @@ modules:
       - name: service_offering_configuration_item_name
         type: varchar
         role: dimension
-        canonical: "['service_offering', 'configuration item', 'CI']"
-        alias: [service_offering, configuration item, CI]
+        canonical: '[''service_offering'', ''configuration item'', ''CI'']'
+        alias:
+        - service_offering
+        - configuration item
+        - CI
       - name: source_description
         type: varchar
         role: dimension
-        possible_values: [PROACTIVE]
+        possible_values:
+        - INCIDENT REVIEW
+        - PROBLEM TASK
+        - REACTIVE
+        - USER REPORT
+        - AUTOMATED ALERT
       - name: status_name
         type: varchar
         role: dimension
         canonical: status
         alias: status
         deeper_insights: true
-        possible_values: [CLOSED, ASSESS, ROOT CAUSE ANALYSIS, RESOLVED, NEW, FIX IN PROGRESS]
+        possible_values:
+        - CLOSED
+        - ASSESS
+        - ROOT CAUSE ANALYSIS
+        - RESOLVED
+        - NEW
+        - FIX IN PROGRESS
       - name: sub_business_name
         type: text[]
         role: dimension
@@ -1294,7 +1473,9 @@ modules:
       - name: under_outside_it_control
         type: varchar
         role: dimension
-        possible_values: ['0', '1', 'null']
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: updated_date
         type: date
         role: timestamp
@@ -1304,7 +1485,11 @@ modules:
       - name: user_resolution_codes
         type: varchar
         role: dimension
-        possible_values: [Change, Solved w/ Workaround, Not fixed, Solved w/ Training/Instruction, Cancelled, Solved w/ Process change, Not Applicable]
+        possible_values:
+        - MONITORING
+        - FIX DEPLOYED
+        - WORKAROUND APPLIED
+        - ESCALATED
       - name: work_note_text
         type: varchar
         role: dimension
@@ -1320,7 +1505,8 @@ modules:
         role: dimension
         canonical: is active
         alias: is active
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'FALSE'
       - name: assign_contact_full_name
         type: varchar
         role: dimension
@@ -1348,11 +1534,13 @@ modules:
       - name: closure_code_code
         type: varchar
         role: dimension
-        possible_values: [NOT APPLICABLE, completed, canceled]
+        possible_values:
+        - TASK_CLOSED
       - name: closure_code_description
         type: varchar
         role: dimension
-        possible_values: [CANCELED, COMPLETED, NOT APPICABLE]
+        possible_values:
+        - TASK CLOSED
       - name: closure_notes_text
         type: varchar
         role: dimension
@@ -1374,14 +1562,13 @@ modules:
       - name: dw_create_user
         type: varchar
         role: dimension
-        possible_values: [DWL_INFORMATICA, svcpoiadlprod@pepsico.com]
-      - name: dw_last_update_date_time
-        type: timestamp
-        role: timestamp
+        possible_values:
+        - SYSTEM
       - name: dw_last_update_user
         type: varchar
         role: dimension
-        possible_values: [DWL_INFORMATICA, svcpoiadlprod@pepsico.com]
+        possible_values:
+        - SYSTEM
       - name: fix_notes
         type: varchar
         role: dimension
@@ -1420,7 +1607,12 @@ modules:
       - name: type_description
         type: varchar
         role: dimension
-        possible_values: [GENERAL, ROOT CAUSE ANALYSIS]
+        possible_values:
+        - FIX IMPLEMENTATION
+        - ROOT CAUSE TASK
+        - ROOT CAUSE ANALYSIS TASK
+        - ANALYSIS TASK
+        - POST-IMPLEMENTATION REVIEW
       - name: work_around
         type: varchar
         role: dimension
@@ -1438,13 +1630,11 @@ modules:
       - name: type
         type: varchar
         role: dimension
-        possible_values: [Problem]
+        possible_values:
+        - CAUSED BY
       - name: problem_system_id
         type: varchar
         role: identifier
-      - name: dw_last_updt_dtm
-        type: varchar
-        role: timestamp
     - name: itsm_problem.tbl_sn_prblm_derivative
       description: Problem derivatives and cross-references linking problems to knowledge, interactions, changes, configurations, companies, tasks, and risks with DW audit metadata.
       time:
@@ -1458,7 +1648,12 @@ modules:
       - name: type
         type: varchar
         role: dimension
-        possible_values: [Problem Child Problem, Problem CI, Problem Company, Problem Interaction, Problem Risk, Problem Task]
+        possible_values:
+        - RISK
+        - KNOWLEDGE
+        - XREF
+        - INCIDENT
+        - CHANGE
       - name: created_knowledge_system_id
         type: varchar
         role: identifier
@@ -1498,9 +1693,6 @@ modules:
       - name: dw_creation_user
         type: varchar
         role: dimension
-      - name: dw_last_updt_dtm
-        type: timestamp
-        role: timestamp
       - name: dw_update_user
         type: varchar
         role: dimension
@@ -1560,11 +1752,18 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [INTENDED OUTCOME/NO INCIDENTS, UNSUCCESSFUL - BACKED OUT OR FIXED VIA, ANOTHER CR/DIDNT HAVE INTENDED OUTCOME/CAUSED INCIDENT]
+        possible_values:
+        - UNSUCCESSFUL
+        - FAILED
+        - ROLLED BACK
+        - SUCCESSFUL
+        - PARTIAL
       - name: configuration_management_database_update_required_indicator
         type: varchar
         role: dimension
-        possible_values: [0, 1]
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: description_text
         type: text
         role: dimension
@@ -1586,7 +1785,9 @@ modules:
       - name: ges_impact_indicator
         type: varchar
         role: dimension
-        possible_values: [0, 1]
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: group_name
         type: varchar
         role: dimension
@@ -1608,7 +1809,10 @@ modules:
       - name: impact_description
         type: varchar
         role: dimension
-        possible_values: [4-MULTI-USER, 5-USER, NOT PROVIDED]
+        possible_values:
+        - HIGH
+        - LOW
+        - MODERATE
       - name: implementation_plan_text
         type: text
         role: dimension
@@ -1656,14 +1860,21 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P2
+        - P4
+        - P1
+        - P3
       - name: production_system_type
         type: varchar
         role: dimension
         canonical: is production
         alias: is production
         deeper_insights: true
-        possible_values: [Non Production, Production]
+        possible_values:
+        - REAL-TIME
+        - BATCH
+        - SCHEDULED
       - name: region_name
         type: text []
         role: dimension
@@ -1673,18 +1884,25 @@ modules:
       - name: risk_description
         type: varchar
         role: dimension
-        possible_values: [HIGH, LOW, MODERATE, NOT PROVIDED]
+        possible_values:
+        - HIGH
+        - LOW
+        - MODERATE
       - name: risk_impact_analysis_text
         type: text
         role: dimension
       - name: sap_impact_indicator
         type: varchar
         role: dimension
-        possible_values: [0, 1]
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: security_approval_required_indicator
         type: varchar
         role: dimension
-        possible_values: [0, 1]
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: service_area
         type: varchar
         role: dimension
@@ -1702,7 +1920,14 @@ modules:
         canonical: status
         alias: status
         deeper_insights: true
-        possible_values: [SCHEDULED, REVIEW, CLOSED, ASSESS, AUTHORIZE, NEW, IMPLEMENT]
+        possible_values:
+        - SCHEDULED
+        - REVIEW
+        - CLOSED
+        - ASSESS
+        - AUTHORIZE
+        - NEW
+        - IMPLEMENT
       - name: sub_business_name
         type: text []
         role: dimension
@@ -1712,7 +1937,9 @@ modules:
       - name: successful_indicator
         type: int4
         role: dimension
-        possible_values: [0, 1]
+        possible_values:
+        - 0
+        - 1
       - name: test_plan_text
         type: text
         role: dimension
@@ -1725,12 +1952,19 @@ modules:
         canonical: change type, type
         alias: change type, type
         deeper_insights: true
-        possible_values: [EMERGENCY, EXPEDITE, MODEL, NORMAL, NOT FOUND, STANDARD]
+        possible_values:
+        - EXPEDITE
+        - NORMAL
+        - EMERGENCY
+        - STANDARD
       - name: urgency_description
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [1 -  CRITICAL, 2 - HIGH, 3 - MEDIUM, 4- LOW]
+        possible_values:
+        - HIGH
+        - LOW
+        - MODERATE
       - name: value_text
         type: text
         role: dimension
@@ -1763,9 +1997,11 @@ modules:
       - name: type
         type: varchar
         role: dimension
-        possible_values: [Caused By Change, Change]
+        possible_values:
+        - Caused By Change
+        - Unknown
       - name: dw_last_updt_dtm
-        type: timestamp
+        type: varchar
         role: timestamp
     - name: itsm.tbl_change_company
       description: Change company mapping table providing business (sector) context and organizational relationships for changes to support sector-based reporting and analysis.
@@ -1825,7 +2061,9 @@ modules:
       - name: l1_status_id
         type: int4
         role: identifier
-        possible_values: [5, 6]
+        possible_values:
+        - 5
+        - 6
         inner_join: slm.exception_details.l1_status_id = slm.exception_status.status_id
       - name: l1_approved_rejected_date
         type: timestamp
@@ -1839,7 +2077,9 @@ modules:
       - name: l2_status_id
         type: int4
         role: identifier
-        possible_values: [5, 6]
+        possible_values:
+        - 5
+        - 6
         inner_join: slm.exception_details.l2_status_id = slm.exception_status.status_id
       - name: l2_approved_rejected_date
         type: timestamp
@@ -1853,7 +2093,10 @@ modules:
       - name: l3_status_id
         type: int4
         role: identifier
-        possible_values: [3, 5, 6]
+        possible_values:
+        - 3
+        - 5
+        - 6
         inner_join: slm.exception_details.l3_status_id = slm.exception_status.status_id
       - name: l3_approved_rejected_date
         type: timestamp
@@ -1881,7 +2124,9 @@ modules:
       - name: category
         type: varchar
         role: dimension
-        possible_values: [5 - Common Services, Common Services]
+        possible_values:
+        - 5 - Common Services
+        - Common Services
     - name: slm.exception_info
       description: Exception master records with requester, month-year, audit metadata, vendor linkage, activation status, and status reference.
       time:
@@ -1917,15 +2162,22 @@ modules:
       - name: vendor_uuid
         type: varchar
         role: dimension
-        possible_values: [Operator - COGNIZANT DB, Operator - HCL, ITSM_Viewer, Orchestrator]
+        possible_values:
+        - Operator - COGNIZANT DB
+        - Operator - HCL
+        - ITSM_Viewer
+        - Orchestrator
       - name: is_active
         type: boolean
         role: dimension
-        possible_values: ['true']
+        possible_values:
+        - 'true'
       - name: status_id
         type: int4
         role: identifier
-        possible_values: [8, 3]
+        possible_values:
+        - 8
+        - 3
         inner_join: slm.exception_info.status_id = slm.exception_status.status_ide
   - name: service_request
     tables:
@@ -1940,15 +2192,6 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-      - name: business_name
-        type: text[]
-        role: dimension
-        canonical: sector
-        alias: sector
-        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
-      - name: business_name_text
-        type: text
-        role: dimension
       - name: catlog_category
         type: varchar
         role: dimension
@@ -1974,9 +2217,6 @@ modules:
       - name: description_text
         type: varchar
         role: dimension
-      - name: dw_last_updt_dtm
-        type: timestamp
-        role: timestamp
       - name: estimated_delivery_date
         type: date
         role: timestamp
@@ -2032,14 +2272,6 @@ modules:
       - name: open_date_time
         type: timestamp
         role: timestamp
-      - name: region_name
-        type: text[]
-        role: dimension
-        canonical: region
-        cross_join: cross join LATERAL unnest(region_name) AS s(region)
-      - name: region_name_text
-        type: text
-        role: dimension
       - name: request_item_id
         type: varchar
         role: identifier
@@ -2050,7 +2282,10 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [GENERAL, NOT PROVIDED, STANDARD]
+        possible_values:
+        - CATALOG
+        - FULFILLMENT
+        - STANDARD
       - name: service_area
         type: varchar
         role: dimension
@@ -2060,14 +2295,19 @@ modules:
       - name: service_offering_configuration_item_name
         type: varchar
         role: dimension
-        canonical: "['service_offering', 'configuration item', 'CI']"
-        alias: [service_offering, configuration item, CI]
+        canonical: '[''service_offering'', ''configuration item'', ''CI'']'
+        alias:
+        - service_offering
+        - configuration item
+        - CI
         deeper_insights: true
       - name: sla_breached_indicator
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [0, 1]
+        possible_values:
+        - 'TRUE'
+        - 'FALSE'
       - name: sla_duration_day
         type: varchar
         role: dimension
@@ -2081,22 +2321,29 @@ modules:
         type: int8
         role: dimension
       - name: sla_end_date_time
-        type: date
+        type: timestamp
         role: timestamp
       - name: sla_name
         type: varchar
         role: dimension
       - name: sla_start_date_time
-        type: date
+        type: timestamp
         role: timestamp
       - name: sla_type_value
         type: varchar
         role: dimension
-        possible_values: [SLA]
+        possible_values:
+        - RESPONSE
+        - RESOLUTION
       - name: stage_description
         type: varchar
         role: dimension
-        possible_values: [PROVIDED, WAITING FOR APPROVAL]
+        possible_values:
+        - CLOSED
+        - REQUESTED
+        - DELIVERED
+        - FULFILLMENT
+        - APPROVAL
       - name: standard_request_item_owner
         type: varchar
         role: dimension
@@ -2107,16 +2354,18 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [CLOSED COMPLETE, CLOSED INCOMPLETE, CLOSED REJECTED, ESCALATED, OPEN, PENDING APPROVAL, WORK IN PROGRESS]
-      - name: sub_business_name
-        type: text []
-        role: dimension
-        canonical: division
-        alias: division
-        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
-      - name: sub_business_name_text
-        type: text
-        role: dimension
+        possible_values:
+        - ESCALATED
+        - CANCELLED
+        - WORK IN PROGRESS
+        - OPEN
+        - PENDING APPROVAL
+        - CLOSED DUPLICATE
+        - REJECTED
+        - PENDING
+        - CLOSED COMPLETE
+        - IN PROGRESS
+        - CLOSED INCOMPLETE
       - name: task_count
         type: int8
         role: dimension
@@ -2146,9 +2395,6 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-      - name: dw_last_updt_dtm
-        type: timestamp
-        role: timestamp
       - name: full_name
         type: varchar
         role: dimension
@@ -2195,7 +2441,8 @@ modules:
       - name: system_name
         type: varchar
         role: dimension
-        possible_values: [IT Services Catalog]
+        possible_values:
+        - IT Services Catalog
       - name: name
         type: varchar
         role: dimension
@@ -2205,25 +2452,35 @@ modules:
       - name: system_class_name
         type: varchar
         role: dimension
-        possible_values: [sc_cat_item_guide, sc_cat_item_content, sn_sb_con_remote_record_producer]
+        possible_values:
+        - sc_cat_item_guide
+        - sc_cat_item_content
+        - sn_sb_con_remote_record_producer
       - name: short_description
         type: varchar
         role: dimension
       - name: active
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: state
         type: varchar
         role: dimension
-        possible_values: [draft, published]
+        possible_values:
+        - draft
+        - published
       - name: dw_last_updt_dtm
         type: timestamp
         role: timestamp
       - name: fulfillment_automation_level
         type: varchar
         role: dimension
-        possible_values: [Manual, Semi_automated, Fully_automated]
+        possible_values:
+        - Manual
+        - Semi_automated
+        - Fully_automated
       - name: owner
         type: varchar
         role: dimension
@@ -2249,11 +2506,14 @@ modules:
       - name: hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [SECTOR CTO - LATAM - FIELD SUPPORT MEXICO, NOT APPLICABLE]
+        possible_values:
+        - SECTOR CTO - LATAM - FIELD SUPPORT MEXICO
+        - NOT APPLICABLE
       - name: hierarchy_4
         type: varchar
         role: dimension
-        possible_values: [COMMERCIAL - APPS]
+        possible_values:
+        - COMMERCIAL - APPS
       - name: hierarchy_3
         type: varchar
         role: dimension
@@ -2266,7 +2526,9 @@ modules:
       - name: make_item_non_conversational
         type: varchar
         role: dimension
-        possible_values: [Conversational, Non Conversational]
+        possible_values:
+        - Conversational
+        - Non Conversational
     - name: itsm_servicerequest.tbl_sc_req_item
       description: Service request items metadata including catalog item, delivery details, approvals, assignments, requester context, and audit timestamps.
       time:
@@ -2304,7 +2566,8 @@ modules:
       - name: system_class_name
         type: varchar
         role: dimension
-        possible_values: [sc_req_item]
+        possible_values:
+        - sc_req_item
       - name: stage
         type: varchar
         role: dimension
@@ -2314,14 +2577,20 @@ modules:
       - name: approval
         type: varchar
         role: dimension
-        possible_values: [approved, cancelled, not requested, rejected, requested]
+        possible_values:
+        - approved
+        - cancelled
+        - not requested
+        - rejected
+        - requested
       - name: request_item_system_id
         type: varchar
         role: identifier
       - name: priority
         type: int4
         role: dimension
-        possible_values: [4]
+        possible_values:
+        - 4
       - name: contact_type
         type: varchar
         role: dimension
@@ -2395,20 +2664,44 @@ modules:
       - name: hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [TRADE SPEND, PFNA HANDHELD LEGACY, PFNA ORDER MANAGEMENT LEGACY, PFNA, RETAIL EXECUTION LEGACY, PFNA TRADE LEGACY, SERVICE DESK - LATAM]
+        possible_values:
+        - CISO
+        - CORPORATE SOLUTIONS
+        - DIGITAL ENABLEMENT
+        - DIGITAL LAB
+        - DIGITAL SOLUTIONS
+        - DIGITAL TRANSFORMATION
+        - 'DXNXT '
+        - ENGINEERING  DEVELOPMENT
+        - ENGINEERING & DELIVERY
+        - ENTERPRISE SOLUTIONS
+        - FINANCE & CORPORATE
+        - FINANCE - HR
+        - 'INFOSEC RISK '
+        - 'INFRA and COLLABORATION '
+        - 'INSIGHTONE '
+        - IT - INFRASTRUCTURE
+        - 'IT SECURITY '
+        - ITAM
+        - NON-IT S&T
+        - NON-IT SPECIFIC
+        - NOT APPLICABLE
+        - SERVICE DELIVERY
+        - SRE
+        - 'SRE '
       - name: hypercare_project
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [PR303072 - PEPSICO GLOBAL TEMPLATE EUROPE WAVE 1]
+        possible_values:
+        - 'NO'
+        - 'YES'
       - name: hypercare_project_code
         type: varchar
         role: dimension
-        possible_values: [PR303072]
       - name: hypercare_project_name
         type: varchar
         role: dimension
-        possible_values: [PEPSICO GLOBAL TEMPLATE EUROPE WAVE 1]
       - name: incident_id
         type: varchar
         role: identifier
@@ -2430,33 +2723,40 @@ modules:
       - name: outage_type
         type: varchar
         role: dimension
-        possible_values: [OUTAGE]
+        possible_values:
+        - OUTAGE
       - name: outbound_it_control_indicator
         type: varchar
         role: dimension
-        possible_values: ['false']
+        possible_values:
+        - 'NO'
+        - 'YES'
       - name: priority_code
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [P1, P2, P3, P4, P5]
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
       - name: project
         type: varchar
         role: dimension
-        possible_values: [PR303072 - PEPSICO GLOBAL TEMPLATE EUROPE WAVE 1]
+        possible_values:
+        - 'NO'
+        - 'YES'
       - name: project_code
         type: varchar
         role: dimension
-        possible_values: [PR303072]
       - name: project_name
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [PEPSICO GLOBAL TEMPLATE EUROPE WAVE 1]
       - name: project_system_id
         type: varchar
         role: identifier
-        possible_values: [a9d6ab7adbd20c9014cb6bba4b9619ca]
       - name: region_name_text
         type: text
         role: dimension
@@ -2469,7 +2769,11 @@ modules:
       - name: service_class
         type: varchar
         role: dimension
-        possible_values: [Technology Management Service]
+        possible_values:
+        - APPLICATION
+        - INFRASTRUCTURE
+        - NETWORK
+        - SECURITY
       - name: service_end_date
         type: date
         role: timestamp
@@ -2497,7 +2801,9 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [CLOSED, RESOLVED]
+        possible_values:
+        - CLOSED
+        - RESOLVED
       - name: sub_business_name_text
         type: text
         role: dimension
@@ -2532,10 +2838,6 @@ modules:
       - name: breached_date_time
         type: timestamp
         role: timestamp
-      - name: business_name
-        type: varchar
-        role: dimension
-        deeper_insights: true
       - name: category
         type: varchar
         role: dimension
@@ -2566,7 +2868,9 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [3, 2, 1]
+        possible_values:
+        - P2
+        - P1
       - name: problem_group_system_id
         type: varchar
         role: identifier
@@ -2576,10 +2880,6 @@ modules:
       - name: problem_system_id
         type: varchar
         role: identifier
-      - name: region_name
-        type: varchar
-        role: dimension
-        canonical: region
       - name: resolved_date_time
         type: timestamp
         role: timestamp
@@ -2593,7 +2893,9 @@ modules:
         type: bool
         role: dimension
         deeper_insights: true
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: sla_duration_in_seconds
         type: numeric
         role: measure
@@ -2603,21 +2905,23 @@ modules:
       - name: sla_stage_description
         type: varchar
         role: dimension
-        possible_values: [IN PROGRESS, PAUSED, COMPLETED]
+        possible_values:
+        - BREACHED
+        - COMPLETED
       - name: sla_start_date_time
         type: timestamp
         role: timestamp
       - name: sla_type
         type: varchar
         role: dimension
-        possible_values: [OLA, SLA]
-      - name: sub_business_name
-        type: varchar
-        role: dimension
+        possible_values:
+        - RESOLUTION
       - name: target
         type: varchar
         role: dimension
-        possible_values: [RESPONSE, RESOLUTION]
+        possible_values:
+        - 4 HOURS
+        - 8 HOURS
       - name: title_text
         type: varchar
         role: dimension
@@ -2655,17 +2959,27 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: ['DRAFT', 'DEFINE', 'PLANNING', 'AWAITING APPROVAL', 'BUILD, TEST & UAT', 'BUILD & TEST', 'DEPLOYMENT & ELS', 'CLOSED COMPLETE', 'CANCELLED']
+        possible_values:
+        - BUILD & TEST
+        - DRAFT
+        - CANCELLED
+        - CLOSED COMPLETE
+        - PLANNING
       - name: closure_code
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: ['SUCCESSFUL', 'UNSUCCESSFUL', 'SUCCESSFUL WITH ISSUES']
+        possible_values:
+        - SUCCESSFUL
+        - UNSUCCESSFUL
+        - SUCCESSFUL WITH ISSUES
       - name: methodology
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: ['WATERFALL/TRADITIONAL', 'AGILE', 'NOT PROVIDED']
+        possible_values:
+        - WATERFALL/TRADITIONAL
+        - AGILE
       - name: delivery_service_area
         type: varchar
         role: dimension
@@ -2686,11 +3000,48 @@ modules:
       - name: delivery_hierarchy_4
         type: varchar
         role: dimension
-        possible_values: [INFRASTRUCTURE DELIVERY PMF, SECTOR CTO - LATAM - INFRASTRUCTURE DELIVERY, CASA&LAB, CGF - COMMERCIAL, SECTOR CTO - LATAM - INFRASTRUCTURE DELIVERY, PBF, PFNA ECOMMERCE]
+        possible_values:
+        - ENGINEERING & DELIVERY
+        - FINANCE - HR
+        - ENGINEERING  DEVELOPMENT
+        - NON-IT S&T
+        - IT - INFRASTRUCTURE
+        - DTS SUPPLY CHAIN
+        - NON-IT
+        - NON-IT SPECIFIC
+        - DTS
+        - CORPORATE SOLUTIONS
+        - DIGITAL LAB
+        - HR-IT SERVICES
+        - SRE
       - name: delivery_hierarchy_5
         type: varchar
         role: dimension
-        possible_values: [PFNA COMMERCIAL - DESTINATION, NOT APPLICABLE]
+        possible_values:
+        - ENTERPRISE SOLUTIONS
+        - NOT APPLICABLE
+        - DIGITAL ENABLEMENT
+        - DIGITAL SOLUTIONS
+        - DIGITAL TRANSFORMATION
+        - SRE
+        - CISO
+        - NON-IT S&T
+        - FINANCE - HR
+        - ITAM
+        - IT - INFRASTRUCTURE
+        - INSIGHTONE
+        - DXNXT
+        - INFRA and COLLABORATION
+        - SERVICE DELIVERY
+        - NON-IT SPECIFIC
+        - CORPORATE SOLUTIONS
+        - DIGITAL LAB
+        - INFOSEC RISK
+        - IT SECURITY
+        - ENGINEERING & DELIVERY
+        - FINANCE & CORPORATE
+        - INFRA AND COLLABORATION
+        - ENGINEERING  DEVELOPMENT
       - name: sector_list
         type: varchar
         role: dimension
@@ -2698,17 +3049,29 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [PROJECT]
+        possible_values:
+        - SERVER
+        - SECURITY
+        - NETWORK
+        - DATABASE
+        - APPLICATION
+        - INFRASTRUCTURE
+        - MIDDLEWARE
+        - STORAGE
       - name: type
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [MINOR, NOT PROVIDED, MAJOR]
+        possible_values:
+        - MAJOR
+        - MINOR
       - name: release_status
         type: varchar
         role: dimension
         deeper_insights: true
-        possible_values: [GREEN, NOT PROVIDED, YELLOW, RED]
+        possible_values:
+        - CLOSED
+        - OPEN
       - name: change_id
         type: varchar
         role: identifier
@@ -2721,19 +3084,19 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
-      - name: BUSINESS_NAME
+      - name: business_name
         type: text []
         role: dimension
         canonical: sector
         alias: sector
         cross_join: cross join LATERAL unnest(BUSINESS_NAME) AS s(sector)
-      - name: REGION_NAME
+      - name: region_name
         type: text[]
         role: dimension
         canonical: region
         alias: region
         cross_join: cross join LATERAL unnest(REGION_NAME) AS s(region)
-      - name: SUB_BUSINESS_NAME
+      - name: sub_business_name
         type: text[]
         role: dimension
         canonical: division
@@ -2754,7 +3117,6 @@ modules:
       - name: impact_description
         type: varchar
         role: dimension
-        possible_values: [SITE/DEPARTMENT, SITE, GLOBAL / SECTOR, USER]
     - name: itsm.tbl_pepops_release_mgmt_company
       description: Release management company mapping table containing business context information linking releases to organizational structure including business units, regions, and company details.
       time:
@@ -2841,7 +3203,9 @@ modules:
       - name: failed
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: started
         type: timestamp
         role: timestamp
@@ -3057,7 +3421,9 @@ modules:
       - name: force_handlers
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: skip_tags
         type: varchar
         role: dimension
@@ -3070,7 +3436,9 @@ modules:
       - name: use_fact_cache
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: organization
         type: int8
         role: dimension
@@ -3082,7 +3450,9 @@ modules:
         type: boolean
         role: dimension
         deeper_insights: true
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: next_job_run
         type: timestamp
         role: timestamp
@@ -3100,84 +3470,124 @@ modules:
       - name: ask_scm_branch_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_diff_mode_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_variables_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_limit_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_tags_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_skip_tags_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_job_type_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_verbosity_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_inventory_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_credential_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_execution_environment_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_labels_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_forks_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_job_slice_count_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_timeout_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: ask_instance_groups_on_launch
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: survey_enabled
         type: boolean
         role: dimension
         deeper_insights: true
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: become_enabled
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: diff_mode
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: allow_simultaneous
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: custom_virtualenv
         type: varchar
         role: dimension
@@ -3193,7 +3603,9 @@ modules:
       - name: prevent_instance_group_fallback
         type: boolean
         role: dimension
-        possible_values: ['true', 'false']
+        possible_values:
+        - 'true'
+        - 'false'
       - name: summaryfields_organizationid
         type: int8
         role: dimension

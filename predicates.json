@@ -237,6 +237,38 @@
         {"table": "itsm_servicerequest.tbl_request_item",
          "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED INCOMPLETE"]}]}
       ]
+    },
+    "outage": {
+      "synonyms": ["outage", "outages", "service outage", "service outages",
+                   "unplanned outage", "unplanned outages", "downtime",
+                   "outage incident", "outage incidents"],
+      "entity": "availability",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_availability.tbl_tableau_outagesv4",
+         "primary": true,
+         "conditions": [{"field": "outage_type", "op": "=", "values": ["OUTAGE"]}],
+         "note": "PRIMARY: tbl_tableau_outagesv4 holds BOTH the service-day rows used as the uptime denominator (outage_type IS NULL, 304696 rows) and the real outage rows (outage_type='OUTAGE', 16118 rows). Without this condition a count of 'outages' returns service-days. Verified: outage_type is only NULL or 'OUTAGE'; every OUTAGE row carries an incident_id (16118 rows / 16117 distinct)."}
+      ]
+    },
+    "availability_impacting": {
+      "synonyms": ["availability impacting", "availability impact",
+                   "impacted availability", "impacts availability",
+                   "affected availability", "affects availability",
+                   "impacted availability percentage", "impacted uptime",
+                   "caused downtime"],
+      "entity": "availability",
+      "grain_key": "incident_id",
+      "bindings": [
+        {"table": "itsm_availability.tbl_tableau_outagesv4",
+         "primary": true,
+         "conditions": [
+           {"field": "outage_type", "op": "=", "values": ["OUTAGE"]},
+           {"field": "business_criticality_value", "op": "=", "values": ["1 - most critical"]}
+         ],
+         "note": "PRIMARY: the population the `availability-percentage` KPI measures — outage rows on the most-critical services (that KPI's own SQL scopes to outage_type='OUTAGE' AND business_criticality_value='1 - most critical'). Verified: 554 rows / 554 distinct incident_id overall, 58 in July 2026.",
+         "caveat": "scoped like the availability-percentage KPI (real outages on '1 - most critical' services) but NOT an exact reproduction of it: that KPI also excludes hypercare projects (hypercare_project_system_id IS NULL) and NON-IT support groups (support_group_system_id IN (SELECT group_system_id FROM itsm.tbl_group_hierarchy WHERE service_area != 'NON-IT')), and a predicate condition supports neither IS NULL nor a subquery. These incidents are therefore a small superset of the ones that actually moved the percentage."}
+      ]
     }
   }
 }

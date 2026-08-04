@@ -1140,7 +1140,19 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
     if built.dropped_dimensions:
         # Dimensions the schema didn't recognise were dropped; the query ran
         # ungrouped. Surface it so the answer can say so instead of pretending.
+        from cora_mcp.column_resolver import resolvable_words
         result["dropped_dimensions"] = built.dropped_dimensions
+        result["dropped_dimensions_note"] = (
+            "%s could not be resolved to a column on %s, so the rows are NOT broken "
+            "down by %s — do not describe the result as if they were. Available "
+            "breakdown words: %s"
+            % (built.dropped_dimensions, built.base_table,
+               " / ".join(built.dropped_dimensions),
+               resolvable_words(built.base_table)[:30]))
+    if built.resolved_columns:
+        # A word that named no column literally but resolved through the schema's
+        # declared vocabulary. Reported so the answer names the column that ran.
+        result["resolved_columns"] = built.resolved_columns
     try:
         exec_out = await db.execute(dialect, connection, built.sql, built.params, limit=limit)
         result.update(exec_out)
@@ -1337,7 +1349,10 @@ async def get_record_detail(
     for tgt in targets:
         tslug = tgt["entity"]
         tprimary = loader.entity_primary_table(tslug)
-        tid = rl._human_id_column(tslug)
+        # Declared id column first: the bare heuristic returns change_id for
+        # itsm_release and first_task_id for itsm_service_request, so a linked-record
+        # listing showed the wrong identifier for those entities.
+        tid = rl._entity_id_column(tslug)
         tcols = rl.curated_detail_columns(tslug, tid, table=tprimary)
         spec = {
             "base": slug,

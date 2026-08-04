@@ -520,6 +520,13 @@ def plan(
         notes.append(
             "breakdown by %s is not available on %s, so it was not applied."
             % (winner.unbound_dims, winner.table))
+    # A binding that knowingly approximates the concept says so here, for whichever
+    # binding actually ran — otherwise a superset is reported as if it were exact.
+    for p in (*winner.free, *winner.direct, *winner.semi):
+        b = p.binding_for(winner.table if p not in winner.semi else
+                          _semi_join_for(p, winner.table)["table"])
+        if b is not None and b.caveat:
+            notes.append("%s: %s" % (p.name, b.caveat))
     if listing:
         if winner.unbound_select:
             notes.append(

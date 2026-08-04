@@ -118,6 +118,10 @@ class BuildResult(BaseModel):
     # inflation warning). Surfaced so an answer can state it rather than imply a
     # precision the join does not have.
     fanout_note: Optional[str] = None
+    # Words that did not match a column name literally and were resolved through the
+    # schema's declared vocabulary: {word: {table, column, how}}. The answer names the
+    # column that actually ran, so "by sector" never silently becomes something else.
+    resolved_columns: Dict[str, Dict[str, str]] = Field(default_factory=dict)
 
 
 def _norm_spec(spec) -> QuerySpec:
@@ -131,6 +135,8 @@ class _Builder:
         self.graph = get_graph()
         self.scope: List[Tuple[str, str]] = []   # (table_fqn, alias) in join order
         self.params: List[Any] = []
+        # user word -> (table, real column, how) for anything not matched literally
+        self.resolved_words: Dict[str, Tuple[str, str, str]] = {}
 
     # ---- identifier helpers ---------------------------------------------
     def _resolve_base(self) -> str:
@@ -146,22 +152,49 @@ class _Builder:
             f"unknown base {base!r}: not a known table or entity. "
             f"Use list_modules / dataset_<entity> to discover valid names.")
 
-    def _resolve_col(self, colname: str, prefer: Optional[str] = None) -> Tuple[str, dict]:
-        """Find (alias, column_info) for a bare column across in-scope tables.
+    def _resolve_col(self, colname: str, prefer: Optional[str] = None,
+                     roles: tuple = ()) -> Tuple[str, dict]:
+        """Find (alias, column_info) for a column across in-scope tables.
 
         If ``prefer`` (a table fqn) is given and it holds the column, that table
         wins over scope order — so a name present in several joined tables (e.g.
-        ``title_text``) resolves to the intended one."""
-        if prefer:
-            for fqn, alias in self.scope:
-                if fqn == prefer:
-                    ci = self.loader.column_info(fqn, colname)
-                    if ci:
-                        return alias, ci
-        for fqn, alias in self.scope:
+        ``title_text``) resolves to the intended one.
+
+        A literal name is tried first; failing that the word goes through
+        :mod:`cora_mcp.column_resolver`, which is the same business vocabulary
+        ``run_kpi`` and ``compose_metric`` already honour. Without this step the
+        ad-hoc path was the only one that did not: "changes closed by sector and type"
+        looked for physical columns named ``sector`` / ``type`` on
+        ``itsm_change.tbl_change``, found neither (they are ``business_name`` and
+        ``type_description``, and the schema declares exactly those aliases), and
+        every dimension was silently dropped — one ungrouped total, plus a claim that
+        the dataset cannot be broken down that way. ``roles`` narrows the search the
+        way the caller means it: a GROUP BY may only land on a dimension.
+        """
+        order = ([fqn for fqn, _ in self.scope if fqn == prefer] if prefer else [])
+        order += [fqn for fqn, _ in self.scope if fqn != prefer]
+        alias_of = dict((fqn, alias) for fqn, alias in self.scope)
+
+        # An exact column name wins as it always has, whatever its role: `roles`
+        # narrows only the vocabulary search below, so nothing that resolved before
+        # resolves differently now.
+        for fqn in order:
             ci = self.loader.column_info(fqn, colname)
             if ci:
-                return alias, ci
+                return alias_of[fqn], ci
+        # declared vocabulary / alias / suffix / near-miss, table by table
+        from cora_mcp.column_resolver import resolve_column_detail
+        for fqn in order:
+            real, how = resolve_column_detail(fqn, colname, roles=roles)
+            if not real:
+                continue
+            ci = self.loader.column_info(fqn, real)
+            if ci:
+                # Recorded, never silent: the user asked by one word and another column
+                # ran, so the answer has to be able to say which.
+                self.resolved_words.setdefault(colname, (fqn, real, how))
+                log.info("resolved %r -> %s.%s via %s", colname, fqn, real, how)
+                return alias_of[fqn], dict(ci, physical_name=ci.get("physical_name") or real)
         raise BuilderError(self._unknown_column_msg(colname))
 
     def _unknown_column_msg(self, colname: str) -> str:
@@ -430,7 +463,7 @@ class _Builder:
         # ungrouped) rather than failing the whole request; recorded for the caller.
         for dim in self.spec.dimensions:
             try:
-                alias, ci = self._resolve_col(dim)
+                alias, ci = self._resolve_col(dim, roles=("dimension",))
             except BuilderError:
                 self.dropped_dimensions.append(dim)
                 log.info("dropping unknown dimension %r (not in schema scope)", dim)
@@ -528,6 +561,7 @@ class _Builder:
         self._sj_n = 0                   # EXISTS subquery alias counter (sj0, sj1, ...)
         self.semi_joined_tables: List[str] = []
         self.dropped_dimensions: List[str] = []
+        self.resolved_words = {}
         self.implicit_grain: Optional[str] = None
         self._fanning: List[str] = []
         self.fanout_note: Optional[str] = None
@@ -575,7 +609,10 @@ class _Builder:
                            dropped_dimensions=self.dropped_dimensions,
                            implicit_grain=self.implicit_grain,
                            fanning_relationships=self._fanning,
-                           fanout_note=self.fanout_note)
+                           fanout_note=self.fanout_note,
+                           resolved_columns={
+                               word: {"table": tbl, "column": col, "how": how}
+                               for word, (tbl, col, how) in self.resolved_words.items()})
 
 
 def _guard_readonly(sql: str) -> None:

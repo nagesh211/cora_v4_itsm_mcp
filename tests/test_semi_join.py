@@ -50,14 +50,21 @@ def test_does_not_emit_a_join():
 
 def test_subquery_conditions_are_parameterised():
     built = sb.build(_spec())
-    # sla_breached_indicator is varchar ('0'/'1'/'YES'/'NO'), so the comparison is
-    # case-folded like every other text filter.
-    assert "lower(sj0.sla_breached_indicator) = %s" in built.sql
+    # sla_breached_indicator on tbl_incident_sla is int4, so there is NO lower() — case
+    # folding applies only to text columns.
+    #
+    # This test previously asserted `lower(sj0.sla_breached_indicator) = %s`, because the
+    # schema declared the column varchar. That declaration was wrong, and the SQL it
+    # produced was rejected outright by Postgres:
+    #     function lower(integer) does not exist
+    # So every "SLA breached" semi-join died at execution until schema_v3.yaml was
+    # reconciled against the database (see SEMANTIC_LAYER_AUDIT.md §5, finding E3).
+    assert "sj0.sla_breached_indicator = %s" in built.sql
+    assert "lower(sj0.sla_breached_indicator)" not in built.sql
     # The value binds exactly as supplied. Type coercion is deliberately NOT done
     # here: db._coerce_for_pgtype converts it against the column's *real* Postgres
-    # type, read from the prepared statement, rather than against the schema YAML's
-    # declared type (which has been measured wrong on several columns).
-    assert "1" in built.params
+    # type, read from the prepared statement.
+    assert 1 in built.params or "1" in built.params
 
 
 def test_negate_emits_not_exists():
@@ -88,7 +95,9 @@ def test_params_are_ordered_to_match_placeholders():
     """Semi-join params must land AFTER the date-window params, or every bind shifts."""
     built = sb.build(_spec(period="last 3 months", date_field="open_date_time"))
     assert built.sql.index("BETWEEN") < built.sql.index("EXISTS")
-    assert built.params[-1] == "1"                   # breach value bound last
+    # Bound as the integer 1, not the string "1": the column is int4 and the spec supplies
+    # 1. It was asserted as "1" while the schema mis-declared the column varchar.
+    assert built.params[-1] == 1                     # breach value bound last
     assert len(built.params) == 3
 
 
@@ -114,20 +123,35 @@ def test_unknown_column_inside_the_subquery_is_rejected():
 
 
 def test_resolved_flag_bypasses_value_domain_resolution():
-    """A predicate value is already the real stored value. Re-resolving it against the
-    column's declared possible_values would reject it, because those domains were
-    measured to disagree with the database on several columns."""
+    """``resolved: True`` means "this is already the real stored value" and must skip the
+    declared-domain check entirely; ``resolved: False`` must still be validated.
+
+    The bypass exists because ``possible_values`` was measured to disagree with the
+    database on 72 columns. This test used to demonstrate that with ``status_name =
+    'OPENED'`` — a real value the schema omitted. After schema_v3.yaml was reconciled the
+    domain is correct (``CANCELED, CLOSED, OPENED, RESOLVED``), so OPENED no longer
+    demonstrates anything. The CONTRACT is unchanged, so it is now shown with a value that
+    genuinely is not in the domain."""
     spec = _spec(base="itsm_incident.tbl_all_incidents", semi_joins=[])
-    # OPENED is a real stored value that schema_v3.yaml does not list for status_name
-    spec["filters"] = [{"field": "status_name", "op": "=", "values": ["OPENED"],
+    spec["filters"] = [{"field": "status_name", "op": "=", "values": ["NOT_A_REAL_STATUS"],
                         "resolved": True}]
     built = sb.build(spec)
-    assert "opened" in [str(p).lower() for p in built.params]
+    assert "not_a_real_status" in [str(p).lower() for p in built.params]
 
     spec["filters"][0]["resolved"] = False
     with pytest.raises(sb.BuilderError) as exc:
         sb.build(spec)
     assert "not valid for" in str(exc.value)
+
+
+def test_a_corrected_domain_now_accepts_a_real_value_unresolved():
+    """The other half of the reconciliation payoff: a real value no longer needs the
+    bypass. 'OPENED' occurs on tbl_all_incidents and the corrected schema lists it, so an
+    ordinary user filter resolves instead of being rejected."""
+    spec = _spec(base="itsm_incident.tbl_all_incidents", semi_joins=[])
+    spec["filters"] = [{"field": "status_name", "op": "=", "values": ["OPENED"]}]
+    built = sb.build(spec)
+    assert "opened" in [str(p).lower() for p in built.params]
 
 
 def test_read_only_guard_still_applies():
