@@ -566,11 +566,12 @@ async def generate_query(
     config = _augment_fields(config, [*dim_names, *filter_by.keys()])
     _validate_filters(config, filter_by)
     filter_by = _resolve_filter_values(config, filter_by)
-    # A SQL-mode KPI inlines filters at its authored {filters} slot using each
-    # field's bare column name. When the authored query joins tables that share
-    # that column, the bare reference is ambiguous and Postgres rejects the whole
-    # query — so qualify it with the alias the authored query bound.
-    config = sql_alias.qualify_filter_columns(config, list(filter_by))
+    # A SQL-mode KPI inlines filters (and, for table mode, an injected GROUP BY
+    # dimension column) using each field's bare column name. When the authored
+    # query joins tables that share that column, the bare reference is ambiguous
+    # and Postgres rejects the whole query — so qualify both with the alias the
+    # authored query bound.
+    config = sql_alias.qualify_filter_columns(config, [*dim_names, *filter_by])
 
     # ---- build the request windows (mirrors gen_query.main) --------------
     is_sql = config.get("execution_mode") != "DSL"
@@ -928,8 +929,17 @@ async def module_overview(
     if limit_kpis:
         names = names[:limit_kpis]
 
-    async def _one(name: str) -> Dict[str, Any]:
+    async def _one(name: str) -> Optional[Dict[str, Any]]:
         cfg = await catalog.get(name)
+        # A module also indexes dashboard "widget" docs (chart configs meant for a
+        # UI drilldown, not a standalone governed metric) alongside real "kpi" docs.
+        # The overview/health rollup only makes sense over the latter — running a
+        # widget's query here would execute it as if it were its own metric and
+        # report a bogus value/status for something that was never meant to stand
+        # alone. Configs with no ``type`` at all predate this field; treat them as
+        # KPIs rather than silently dropping them.
+        if cfg and cfg.get("type") not in (None, "kpi"):
+            return None
         # Resolve each requested term (alias or canonical) against THIS KPI; apply
         # the ones it supports, record the rest as dropped (never mis-applied).
         applied: Dict[str, Any] = {}
@@ -990,26 +1000,35 @@ async def module_overview(
                 return
             resolved.append(rd)
 
-        # SQL-mode KPIs run an authored scalar query with no generic GROUP BY, so
-        # they can't take mode="table". Many still ship an authored breakdown query
-        # (drilldown.breakdown.query with a {dim} slot) — use it when present.
-        if cfg.get("execution_mode") != "DSL":
-            await _sql_mode_breakdown(cfg, entry, want_dims, resolved, applied)
-            return
+        # Try the generic GROUP BY path first. This now works for BOTH execution
+        # families: DSL always could, and a SQL-mode KPI that declares
+        # `allowed_group_by` for this dimension can too (gen_query.driver_substitute
+        # rewrites its authored query to group by it). Unlike the authored {dim}
+        # breakdown fallback below, this path also still applies the requested
+        # filters, so it's always preferred when it succeeds.
         try:
             out = await run_query(name, period=period, filters=applied or None,
                                   mode="table", dim=resolved, limit=100)
             res = out.get("results") or []
             cur = res[0] if res else {}
             if cur.get("error"):
-                _drop_dim(entry, want_dims, cur["error"])
-            else:
-                entry["dimension"] = resolved if len(resolved) > 1 else resolved[0]
-                entry["breakdown"] = _breakdown_rows(resolved, cur.get("rows") or [])
+                raise QueryError(cur["error"])
+            entry["dimension"] = resolved if len(resolved) > 1 else resolved[0]
+            entry["breakdown"] = _breakdown_rows(resolved, cur.get("rows") or [])
+            return
         except QueryError as exc:
-            _drop_dim(entry, want_dims, str(exc))
+            generic_reason = str(exc)
 
-    async def _sql_mode_breakdown(cfg, entry, want_dims, resolved, applied):
+        if cfg.get("execution_mode") == "DSL" or applied:
+            # A DSL rejection is final (there's no second grouping mechanism for
+            # it). A SQL-mode rejection WITH filters requested is also final here:
+            # the fallback breakdown query below can't apply filters either, so
+            # falling back would silently answer a different (unfiltered) question.
+            _drop_dim(entry, want_dims, generic_reason)
+            return
+        await _sql_mode_breakdown(cfg, entry, want_dims, resolved, generic_reason)
+
+    async def _sql_mode_breakdown(cfg, entry, want_dims, resolved, generic_reason):
         dims_allowed = config_dimensions(cfg)
         win = entry.get("window") or {}
         # The authored template exposes a single {dim} and no filter slot. We fold one
@@ -1027,12 +1046,9 @@ async def module_overview(
             reason = (f"KPI {cfg.get('name')!r} cannot break down by {bad!r}; "
                       f"allowed breakdown dimensions: {dims_allowed}.")
         elif inner_tmpl is None:
-            reason = (f"KPI {cfg.get('name')!r} is SQL-mode and has no reusable breakdown "
-                      f"query for {resolved!r}, so it cannot be grouped by that dimension.")
-        elif applied:
-            reason = (f"KPI {cfg.get('name')!r} is SQL-mode; its authored breakdown "
-                      f"cannot also apply the filter(s) {sorted(applied)} — the "
-                      f"breakdown was skipped rather than returned unfiltered.")
+            # No authored fallback query either — surface the generic (GROUP BY)
+            # rejection reason, which names the KPI's actual allowed_group_by list.
+            reason = generic_reason
         elif not (win.get("from") and win.get("to")):
             reason = (f"no resolved date window for the {cfg.get('name')!r} breakdown.")
         if reason:
@@ -1058,7 +1074,8 @@ async def module_overview(
 
     # Run the module's KPIs concurrently (the asyncpg pool bounds real parallelism).
     import asyncio
-    metrics: List[Dict[str, Any]] = list(await asyncio.gather(*(_one(n) for n in names)))
+    metrics: List[Dict[str, Any]] = [m for m in await asyncio.gather(*(_one(n) for n in names))
+                                     if m is not None]
 
     resolved = None
     if period:

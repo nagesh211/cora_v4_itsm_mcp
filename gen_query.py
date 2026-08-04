@@ -359,6 +359,389 @@ def compile_sql_filters(config, filter_by):
     return (" AND " + " AND ".join(frags)) if frags else ""
 
 
+def sql_allowed_group_by(config):
+    """The set of dimension names an SQL-mode KPI's authored query may be grouped
+    by, or ``None`` when the config declares no ``allowed_group_by`` at all (the
+    author never vetted this query for grouping, so ``group_by_dim`` stays
+    rejected). Mirrors ``cora_mcp.opensearch_client.config_dimensions``'s reading
+    of ``allowed_group_by``: entries carrying a ``granularity`` are time-grain
+    fields for series mode, not breakdown dimensions, so they're skipped here."""
+    agb = config.get("allowed_group_by")
+    if not agb:
+        return None
+    out = set()
+    for item in agb:
+        if isinstance(item, str):
+            out.add(item)
+        elif isinstance(item, dict) and item.get("field") and not item.get("granularity"):
+            out.add(item["field"])
+    return out or None
+
+
+def _sql_primary_table_columns(config):
+    """Real columns of a SQL-mode KPI's PRIMARY table -> declared SQL type, read
+    from the same ``schema_v3.yaml`` index ``_column_type`` uses. ``{}`` when the
+    primary table isn't declared or isn't in the schema catalog."""
+    pd = config.get("primary_dataset") or {}
+    schema, table = pd.get("schema"), pd.get("table")
+    if not table:
+        return {}
+    types = _load_schema_types()
+    for key in ([f"{schema}.{table}"] if schema else []) + [table]:
+        cols = types.get(key)
+        if cols:
+            return cols
+    return {}
+
+
+# Words that can textually follow a `schema.table` reference without being its
+# alias (mirrors cora_mcp.sql_alias's list — kept independent since this module
+# has no cora_mcp import).
+_NOT_AN_ALIAS = {
+    "on", "where", "group", "order", "having", "limit", "offset", "union",
+    "inner", "left", "right", "full", "cross", "outer", "join", "select",
+    "and", "or", "as", "using", "window", "fetch", "except", "intersect",
+}
+_TABLE_BINDING_RE = re.compile(
+    r"\b(?:from|join)\s+([a-z_][\w]*)\.([a-z_][\w]*)\s+(?:as\s+)?([a-z_][\w]*)",
+    re.IGNORECASE)
+
+
+def _sql_outer_scope_tables(sql):
+    """``{(schema, table): alias}`` for every table bound directly in the OUTER
+    (paren-depth-0) scope of ``sql`` — i.e. NOT nested inside a parenthesized
+    derived table/subquery. A plain text scan (no real SQL parser), tracking
+    paren depth up to each match's start; good enough to tell "one flat
+    FROM/JOIN chain" apart from "wrapped in a subquery" — which is exactly
+    what decides whether a column from that table is visible where we're
+    about to inject a dimension into the top-level SELECT/GROUP BY."""
+    out = {}
+    for m in _TABLE_BINDING_RE.finditer(sql):
+        alias = m.group(3)
+        if alias.lower() in _NOT_AN_ALIAS:
+            continue
+        depth = sql.count("(", 0, m.start()) - sql.count(")", 0, m.start())
+        if depth == 0:
+            out[(m.group(1).lower(), m.group(2).lower())] = alias
+    return out
+
+
+def _sql_primary_table_in_outer_scope(config, sql):
+    """Whether the KPI's ``primary_dataset`` table is directly reachable (not
+    buried inside a derived subquery) in ``sql``'s outer scope. A query shaped
+    like ``SELECT ... FROM (SELECT ... FROM real.table a ...) x`` binds ``a``
+    one level down — the top-level SELECT can only see what ``x`` re-exports,
+    so injecting a raw dimension column there would reach Postgres as
+    "missing FROM-clause entry", not a KPI bug but a structural mismatch this
+    generic rewrite must refuse rather than ship."""
+    pd = config.get("primary_dataset") or {}
+    table = (pd.get("table") or "").lower()
+    if not table:
+        return False
+    schema = (pd.get("schema") or "").lower()
+    outer = _sql_outer_scope_tables(sql)
+    if (schema, table) in outer:
+        return True
+    return any(t == table for (_, t) in outer)
+
+
+# ============================================================================
+# 2b. SQL-mode dimension PUSHDOWN for wrapped/nested queries (sqlglot AST)
+# ============================================================================
+# ``_sql_inject_group_by`` above only works when the primary table sits
+# directly in the query's outer scope. A large class of authored KPIs instead
+# wrap it one or more levels down — a single CTE/subquery the outer SELECT
+# just aggregates further (e.g. ``SELECT SUM(x) FROM (SELECT ... FROM
+# real.table a ...) d``), or a per-record aggregate CTE re-aggregated by an
+# outer SUM. For that SINGLE-BRANCH shape (never a ratio combining two
+# independently-aggregated branches — that's a different, harder class left
+# alone here) we can still push the dimension all the way down to the real
+# table and thread it back up through every wrapping level, using sqlglot's
+# AST instead of text splicing so each addition lands in the right scope.
+def _cte_map(tree):
+    with_ = tree.args.get("with_")
+    if not with_:
+        return {}
+    return {c.alias_or_name.lower(): c.this for c in with_.expressions}
+
+
+def _own_table_alias(select_node, schema, table):
+    """If ``select_node``'s OWN from/joins directly reference (schema, table)
+    (real joins for row enrichment are fine here), return the alias used for
+    it. Else None — the table isn't bound at this level."""
+    frm = select_node.args.get("from_")
+    joins = select_node.args.get("joins") or []
+    sources = ([frm.this] if frm else []) + [j.this for j in joins]
+    for s in sources:
+        if isinstance(s, exp.Table) and s.name.lower() == table.lower():
+            s_schema = (s.db or "").lower()
+            if not schema or not s_schema or s_schema == schema.lower():
+                return s.alias_or_name
+    return None
+
+
+def _branch_source(select_node, ctes):
+    """The single nested branch `select_node` derives from — a Subquery's
+    inner select, or a named CTE's definition — or ``(None, None)`` if its
+    FROM is a plain real table (chain ends) or it joins to ANOTHER branch
+    (two independently-derived sources combined = not this single-branch
+    class; refuse rather than guess which one is "the" dimension source)."""
+    frm = select_node.args.get("from_")
+    joins = select_node.args.get("joins") or []
+    if joins or frm is None:
+        return None, None
+    src = frm.this
+    if isinstance(src, exp.Subquery):
+        return src.this, src.alias_or_name
+    if isinstance(src, exp.Table) and src.name.lower() in ctes:
+        return ctes[src.name.lower()], src.alias_or_name
+    return None, None
+
+
+def _has_own_aggregate(select_node):
+    return any(e.find(exp.AggFunc) for e in select_node.expressions)
+
+
+def _needs_group_by(select_node):
+    """True if this level is itself an aggregation point — already has a
+    GROUP BY, or one of its own expressions calls an aggregate function —
+    meaning the injected dimension must join ITS GROUP BY too, else its
+    aggregate silently collapses across the dimension instead of respecting
+    it. A single branch can have more than one such level (e.g. a per-record
+    aggregate CTE re-aggregated by an outer SUM)."""
+    return bool(select_node.args.get("group")) or _has_own_aggregate(select_node)
+
+
+def _add_to_group_by(select_node, grp_names):
+    existing = select_node.args.get("group")
+    cols = [exp.column(g) for g in grp_names]
+    if existing:
+        for c in cols:
+            existing.append("expressions", c)
+    else:
+        select_node.set("group", exp.Group(expressions=cols))
+
+
+def _sql_dimension_chain(root, ctes, schema, table):
+    """``([(select, child_alias_or_None), ...], base_alias)`` outer -> inner,
+    starting from ``root`` (the top-level query, or one branch of a ratio —
+    see ``_sql_pushdown_ratio_group_by``) and ending at the SELECT whose own
+    FROM/JOIN directly binds (schema, table); ``(None, None)`` if that table
+    isn't reachable via a single linear chain of subqueries/CTEs from
+    ``root`` (a nested branching/ratio query, or the table genuinely isn't
+    referenced there at all). ``ctes`` is the whole query's CTE map (shared
+    across branches — CTEs are defined once at the top)."""
+    chain = []
+    node = root
+    while True:
+        alias = _own_table_alias(node, schema, table)
+        if alias is not None:
+            chain.append((node, None))
+            return chain, alias
+        child, child_alias = _branch_source(node, ctes)
+        if child is None:
+            return None, None
+        chain.append((node, child_alias))
+        node = child
+
+
+def _apply_dimension_chain(chain, base_alias, cols, grp_names):
+    """Mutate every SELECT in ``chain`` (outer -> inner, as returned by
+    ``_sql_dimension_chain``) in place: project the raw dimension column(s)
+    at the innermost (table-owning) level, thread ``grp``/``grp2``/… back up
+    through every wrapping level, and add them to the GROUP BY of every level
+    that is itself an aggregation point (there can be more than one)."""
+    s_table_idx = len(chain) - 1
+    s_table_sel, _ = chain[s_table_idx]
+    for col, grp in zip(cols, grp_names):
+        expr = sqlglot.parse_one("SELECT %s.%s AS %s" % (base_alias, col, grp),
+                                 read="postgres").expressions[0]
+        s_table_sel.append("expressions", expr)
+    if _needs_group_by(s_table_sel):
+        _add_to_group_by(s_table_sel, grp_names)
+
+    for i in range(s_table_idx - 1, -1, -1):
+        sel, child_alias = chain[i]
+        for grp in grp_names:
+            expr = sqlglot.parse_one("SELECT %s.%s AS %s" % (child_alias, grp, grp),
+                                     read="postgres").expressions[0]
+            sel.append("expressions", expr)
+        if _needs_group_by(sel):
+            _add_to_group_by(sel, grp_names)
+
+
+def _sql_two_branch_ratio(select_node, ctes):
+    """``((branch1_select, alias1), (branch2_select, alias2), join_node)`` if
+    ``select_node``'s FROM+JOIN is EXACTLY two independently-derived branches
+    (a Subquery or named CTE each) combined with NO existing join predicate
+    and NO pre-existing GROUP BY on either side — the "ratio of two bare
+    totals" shape (e.g. ``NUMERATOR N CROSS JOIN DENOMINATOR D``, or a comma
+    join of two aggregate subqueries). ``None`` for anything else: more than
+    two sources, an existing ON/USING (already keyed on something — usually a
+    time bucket or a hand-picked single dimension, a different and more
+    delicate case this doesn't attempt), or a branch that's already grouped
+    (same reason)."""
+    frm = select_node.args.get("from_")
+    joins = select_node.args.get("joins") or []
+    if not frm or len(joins) != 1 or joins[0].args.get("on") or joins[0].args.get("using"):
+        return None
+
+    def resolve(node):
+        if isinstance(node, exp.Subquery):
+            return node.this, node.alias_or_name
+        if isinstance(node, exp.Table) and node.name.lower() in ctes:
+            return ctes[node.name.lower()], node.alias_or_name
+        return None, None
+
+    sel1, alias1 = resolve(frm.this)
+    sel2, alias2 = resolve(joins[0].this)
+    if sel1 is None or sel2 is None:
+        return None
+    if sel1.args.get("group") or sel2.args.get("group"):
+        return None
+    return (sel1, alias1), (sel2, alias2), joins[0]
+
+
+def _sql_pushdown_ratio_group_by(tree, config, dim_list, fields, schema, table):
+    """Handle the "ratio of two bare aggregate totals" shape: push the
+    dimension down into EACH branch independently (reusing
+    ``_sql_dimension_chain``/``_apply_dimension_chain``, so each branch ends
+    up grouped by it), then turn the branches' unconditional CROSS/comma join
+    into a ``FULL OUTER JOIN ON`` the dimension — FULL, not INNER, so a
+    dimension value present on only one side (e.g. a sector with numerator
+    activity but zero denominator activity) isn't silently dropped — and
+    exposes ``COALESCE(branch1.grp, branch2.grp) AS grp`` on the outermost
+    SELECT so the result is labelled even when one side is missing that
+    value. Raises ``ValueError`` if this isn't that exact shape, or the
+    dimension isn't reachable in one of the two branches."""
+    ctes = _cte_map(tree)
+    two = _sql_two_branch_ratio(tree, ctes)
+    if two is None:
+        raise ValueError(
+            "table/dimension mode is not supported for SQL-mode KPI %r: it "
+            "isn't a plain 'two bare totals combined with no join key' ratio "
+            "either (an existing join predicate or an already-grouped branch "
+            "means the dimension can't be added generically here). Use its "
+            "drilldown breakdown or a DSL KPI instead." % config.get("name"))
+    (sel1, alias1), (sel2, alias2), join = two
+
+    grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
+    cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
+    for sel, alias in ((sel1, alias1), (sel2, alias2)):
+        chain, base_alias = _sql_dimension_chain(sel, ctes, schema, table)
+        if chain is None:
+            raise ValueError(
+                "table/dimension mode is not supported for SQL-mode KPI %r: "
+                "its primary table %r isn't reachable in branch %r of this "
+                "ratio query." % (config.get("name"), table, alias))
+        _apply_dimension_chain(chain, base_alias, cols, grp_names)
+
+    on_expr = None
+    for g in grp_names:
+        cond = exp.EQ(this=exp.column(g, table=alias1), expression=exp.column(g, table=alias2))
+        on_expr = cond if on_expr is None else exp.And(this=on_expr, expression=cond)
+    join.set("on", on_expr)
+    join.set("kind", "OUTER")
+    join.set("side", "FULL")
+
+    coalesced = []
+    for g in grp_names:
+        expr = sqlglot.parse_one("SELECT COALESCE(%s.%s, %s.%s) AS %s"
+                                 % (alias1, g, alias2, g, g), read="postgres").expressions[0]
+        tree.append("expressions", expr)
+        coalesced.append(expr.this.copy())    # the bare COALESCE(...) call, no alias
+    # The outermost SELECT may itself aggregate further over the two branches'
+    # per-dimension rows (e.g. AVG of a per-branch ratio) — same as any other
+    # level in the single-branch chain, that needs the dimension in ITS GROUP
+    # BY too, else it collapses right back across the dimension it just got.
+    # Group by the COALESCE expression itself, not the bare `grp` alias: with
+    # both branches' `grp` columns in scope from the FULL OUTER JOIN, a bare
+    # `GROUP BY grp` is ambiguous between the output alias and either side's
+    # input column.
+    if _needs_group_by(tree):
+        existing = tree.args.get("group")
+        if existing:
+            for c in coalesced:
+                existing.append("expressions", c)
+        else:
+            tree.set("group", exp.Group(expressions=coalesced))
+
+    return tree.sql(dialect="postgres")
+
+
+def _sql_pushdown_group_by(sql, config, dim_list, fields):
+    """Push ``dim_list`` down to the KPI's primary table through a chain of
+    wrapping CTEs/subqueries, and thread it back up to the outermost SELECT —
+    see the module comment above. Falls back to
+    ``_sql_pushdown_ratio_group_by`` for the "two independently-aggregated
+    branches" shape a single chain can't reach. Returns the rewritten SQL, or
+    raises ``ValueError`` if the query is neither shape."""
+    if sqlglot is None:
+        raise ValueError("sqlglot is not installed; cannot push a dimension "
+                         "through a wrapped SQL-mode KPI's nested query")
+    pd = config.get("primary_dataset") or {}
+    schema, table = pd.get("schema"), pd.get("table")
+    if not table:
+        raise ValueError("SQL-mode KPI %r has no primary_dataset.table to "
+                         "anchor a dimension pushdown on" % config.get("name"))
+    try:
+        tree = sqlglot.parse_one(sql, read="postgres")
+    except Exception as exc:
+        raise ValueError("could not parse SQL-mode KPI %r's query for a "
+                         "dimension pushdown: %s" % (config.get("name"), exc)) from exc
+    ctes = _cte_map(tree)
+    chain, base_alias = _sql_dimension_chain(tree, ctes, schema, table)
+    if chain is None:
+        return _sql_pushdown_ratio_group_by(tree, config, dim_list, fields, schema, table)
+
+    grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
+    cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
+    _apply_dimension_chain(chain, base_alias, cols, grp_names)
+    return tree.sql(dialect="postgres")
+
+
+def _sql_inject_group_by(sql, config, dim_list, fields):
+    """Rewrite an authored aggregate ``SELECT ... FROM ... WHERE ...`` so it also
+    groups by ``dim_list`` — one ``grp``/``grp2``/… column per requested
+    dimension, added right after ``SELECT`` and via ``GROUP BY`` at the end.
+
+    This reuses whatever measure expression the author wrote (AVG, ratio,
+    COUNT, …) instead of requiring a second hand-authored breakdown query, so
+    "by sector" always answers with the SAME metric as the ungrouped stat.
+    Raises if the query has no leading ``SELECT`` to anchor on, or already
+    carries its own top-level ``GROUP BY`` (a hand-authored grouped query — we
+    won't guess how to merge a second one in safely).
+    ``fields`` is the (possibly schema-augmented — see ``driver_substitute``)
+    fields map to read each dimension's physical column from.
+
+    When the primary table isn't directly reachable at the outer scope (see
+    ``_sql_primary_table_in_outer_scope``), falls back to
+    ``_sql_pushdown_group_by`` — a sqlglot-based rewrite that pushes the
+    dimension down to wherever the table actually lives and threads it back
+    up through the wrapping CTEs/subqueries. That fallback itself raises for
+    the harder ratio-of-two-branches shape it doesn't yet handle.
+    """
+    if not _sql_primary_table_in_outer_scope(config, sql):
+        return _sql_pushdown_group_by(sql, config, dim_list, fields)
+    if re.search(r"(?is)\bgroup\s+by\b", sql):
+        raise ValueError(
+            "SQL-mode KPI %r cannot add a dimension GROUP BY: its base_query "
+            "already has one." % config.get("name"))
+    m = re.match(r"(?is)^\s*select\s+", sql)
+    if not m:
+        raise ValueError(
+            "SQL-mode KPI %r base_query doesn't start with SELECT; cannot inject "
+            "a dimension GROUP BY." % config.get("name"))
+    sel_cols, group_idx = [], []
+    for i, d in enumerate(dim_list, start=1):
+        col_expr = fields[d]["column"]          # already alias-qualified if needed
+        alias = "grp" if i == 1 else "grp%d" % i
+        sel_cols.append("%s AS %s" % (col_expr, alias))
+        group_idx.append(str(i))
+    sql = sql[:m.end()] + ", ".join(sel_cols) + ", " + sql[m.end():]
+    return sql + " GROUP BY " + ", ".join(group_idx)
+
+
 def driver_substitute(config, payload):
     """SQL-mode: substitute the window (and user filters) into the authored
     ``config.sql.base_query`` -> ``(sql, [])``.
@@ -368,16 +751,50 @@ def driver_substitute(config, payload):
       right scope). If filters were requested but the query has no ``{filters}``
       slot, we RAISE rather than silently drop them — a silently-unfiltered
       number is worse than a clear error.
-    * ``table``/dimension mode cannot be expressed against an authored scalar
-      query, so a ``group_by_dim`` request is rejected (use the KPI's drilldown
-      breakdown or a DSL KPI instead) rather than returning an ungrouped scalar.
+    * ``table``/dimension mode: a ``group_by_dim`` request is honoured by
+      rewriting the authored query to also SELECT/GROUP BY the requested
+      dimension(s) — see ``_sql_inject_group_by``. Groupability is decided by:
+        1. an explicit ``allowed_group_by`` — a curated allowlist the author
+           vetted; a dim outside it is rejected even if it's a real column.
+        2. no ``allowed_group_by`` declared at all -> SCHEMA FALLBACK: a dim is
+           still groupable if its physical column is a real column on the KPI's
+           primary table (``schema_v3.yaml``), the same fallback already used
+           for filters and series/table dims elsewhere. A dim that's neither
+           curated nor a real schema column is rejected — use the KPI's
+           drilldown breakdown or a DSL KPI instead.
     """
     payload = payload or {}
-    if payload.get("group_by_dim"):
-        raise ValueError(
-            "table/dimension mode is not supported for SQL-mode KPI %r: an "
-            "authored scalar query has no generic GROUP BY. Use its drilldown "
-            "breakdown or a DSL KPI." % config.get("name"))
+    dims = payload.get("group_by_dim")
+    dim_list = (list(dims) if isinstance(dims, (list, tuple)) else [dims]) if dims else []
+    fields = dict(get_fields(config))       # local copy: schema fallback may add entries
+    if dim_list:
+        allowed = sql_allowed_group_by(config)
+        schema_cols = None if allowed is not None else _sql_primary_table_columns(config)
+        pd_name = (config.get("primary_dataset") or {}).get("table") \
+            or (config.get("primary_dataset") or {}).get("name")
+        for d in dim_list:
+            if allowed is not None:
+                if d not in allowed:
+                    raise ValueError(
+                        "dimension %r is not groupable for SQL-mode KPI %r; allowed: %s"
+                        % (d, config.get("name"), sorted(allowed)))
+                if d not in fields:
+                    raise ValueError(
+                        "dimension %r not defined in fields for %s" % (d, config.get("name")))
+                continue
+            # No allowed_group_by declared -> fall back to a real schema column.
+            # `d` may already be a declared field (use its physical column) or a
+            # bare column name the config never declared as a field at all.
+            col = (fields.get(d) or {}).get("column", d)
+            bare = col.rsplit(".", 1)[-1]        # strip any authored alias qualifier
+            if not schema_cols or bare not in schema_cols:
+                raise ValueError(
+                    "table/dimension mode is not supported for SQL-mode KPI %r: "
+                    "dimension %r is neither in an allowed_group_by list (none "
+                    "declared) nor a real column on its primary table %r. Use "
+                    "its drilldown breakdown or a DSL KPI." % (config.get("name"), d, pd_name))
+            if d not in fields:                  # synthesize so injection can use it
+                fields[d] = {"dataset": pd_name, "column": bare}
     bq = config["sql"]["base_query"]
 
     # Build an effective date payload so every window placeholder the base_query
@@ -414,6 +831,8 @@ def driver_substitute(config, payload):
             "date window not resolved for SQL-mode KPI %r: unfilled %s "
             "(no date supplied for the requested window)."
             % (config.get("name"), leftover))
+    if dim_list:
+        sql = _sql_inject_group_by(sql, config, dim_list, fields)
     return sql, []
 
 
@@ -531,8 +950,10 @@ def dsl_build(config, payload=None):
 # ============================================================================
 try:
     import sqlglot
+    from sqlglot import exp
 except ImportError:
     sqlglot = None
+    exp = None
 AUTHOR_DIALECT = "postgres"
 
 

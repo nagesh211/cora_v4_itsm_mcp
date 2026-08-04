@@ -4030,6 +4030,313 @@ modules:
         type: varchar
         role: dimension
         deeper_insights: true
+    - name: automation.tbl_automation_incident
+      description: Automated incident management table containing comprehensive incident lifecycle data including assignment, resolution, escalation, major-incident (MIM) tracking, business context, and automation metadata for tracking automated incident handling and resolution efficiency.
+      time:
+        field: open_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: incident_id
+        type: varchar
+        role: identifier
+        deeper_insights: true
+      - name: contact_type_code
+        type: varchar
+        role: dimension
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the incident was opened
+      - name: opened_for_contact_system_id
+        type: varchar
+        role: identifier
+      - name: opened_by_contact_system_id
+        type: varchar
+        role: identifier
+      - name: impact_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: parent_incident_system_id
+        type: varchar
+        role: identifier
+      - name: urgency_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: priority_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: preferred_contact_type_value
+        type: varchar
+        role: dimension
+      - name: email_value
+        type: varchar
+        role: dimension
+      - name: major_incident_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: category_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: telephone_number_value
+        type: varchar
+        role: dimension
+      - name: location_system_id
+        type: varchar
+        role: identifier
+      - name: missing_configuration_item_indicator
+        type: varchar
+        role: dimension
+      - name: service_configuration_item_system_id
+        type: varchar
+        role: identifier
+      - name: status_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: hold_reason_code
+        type: varchar
+        role: dimension
+      - name: configuration_item_system_id
+        type: varchar
+        role: identifier
+      - name: assignment_group_system_id
+        type: varchar
+        role: identifier
+      - name: missing_ci_name_value
+        type: varchar
+        role: dimension
+      - name: assignee_contact_system_id
+        type: varchar
+        role: identifier
+      - name: configuration_item_description
+        type: varchar
+        role: dimension
+      - name: title_text
+        type: varchar
+        role: dimension
+      - name: description_text
+        type: varchar
+        role: dimension
+      - name: active_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: draft_knowledge_base_indicator
+        type: varchar
+        role: dimension
+      - name: resolved_by_contact_system_id
+        type: varchar
+        role: identifier
+      - name: resolved_date_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the incident was resolved
+      - name: closure_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: closure_notes_text
+        type: varchar
+        role: dimension
+      - name: closed_by_contact_system_id
+        type: varchar
+        role: identifier
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the incident was closed
+      - name: reopened_by_contact_system_id
+        type: varchar
+        role: identifier
+      - name: reopened_date_time
+        type: timestamp
+        role: timestamp
+      - name: problem_candidate_indicator
+        type: varchar
+        role: dimension
+      - name: escalation_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: made_sla_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: vendor_company_system_id
+        type: varchar
+        role: identifier
+      - name: vendor_ticket_number_value
+        type: varchar
+        role: dimension
+      - name: dw_crt_dtm
+        type: varchar
+        role: timestamp
+      - name: dw_crt_user
+        type: varchar
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_user
+        type: varchar
+        role: dimension
+      - name: correlation_id
+        type: varchar
+        role: identifier
+      - name: cc_system_id
+        type: varchar
+        role: identifier
+      - name: updated_date_time
+        type: timestamp
+        role: timestamp
+        description: Last update timestamp
+      - name: mim_code
+        type: varchar
+        role: dimension
+      - name: mim_contact_system_id
+        type: varchar
+        role: identifier
+      - name: business_impact_text
+        type: varchar
+        role: dimension
+      - name: key_participant_list
+        type: varchar
+        role: dimension
+      - name: webex_number
+        type: varchar
+        role: dimension
+      - name: skype_link
+        type: varchar
+        role: dimension
+      - name: problem_cause_text
+        type: varchar
+        role: dimension
+      - name: promoted_contact_system_id
+        type: varchar
+        role: identifier
+      - name: promoted_date_time
+        type: timestamp
+        role: timestamp
+      - name: overview_description
+        type: varchar
+        role: dimension
+      - name: finding_description
+        type: varchar
+        role: dimension
+      - name: current_recovery_plan_description
+        type: varchar
+        role: dimension
+      - name: current_business_impact_description
+        type: varchar
+        role: dimension
+      - name: proposed_date_time
+        type: timestamp
+        role: timestamp
+      - name: proposed_by_contact_system_id
+        type: varchar
+        role: identifier
+      - name: close_code
+        type: varchar
+        role: dimension
+      - name: open_date
+        type: date
+        role: timestamp
+        description: Date when the incident was opened
+      - name: closed_date
+        type: date
+        role: timestamp
+        description: Date when the incident was closed
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: reopened_date
+        type: date
+        role: timestamp
+      - name: service_offering_ci_sys_id
+        type: varchar
+        role: identifier
+      - name: reassignment_count
+        type: integer
+        role: measure
+      - name: u_first_assignment
+        type: varchar
+        role: dimension
+      - name: created_date_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the incident record was created
+      - name: u_first_assignment_group_name
+        type: varchar
+        role: dimension
+      - name: bundle
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: sub_business_name_text
+        type: varchar
+        role: dimension
+      - name: region_name_text
+        type: varchar
+        role: dimension
+      - name: assignment_group
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: varchar
+        role: dimension
+        canonical: service_area
+        deeper_insights: true
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        canonical: vendor
+        alias: vendor
+        deeper_insights: true
+      - name: resolved_by
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: varchar
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        canonical: division
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name
+        type: text[]
+        role: dimension
+        canonical: region
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
     - name: automation.tbl_automation_servicerequest_task
       description: Automated service request task table containing comprehensive task-level information including lifecycle tracking, assignment details, SLA metrics, delivery estimates, business context, and automation metadata for tracking automated service request fulfillment and task execution efficiency.
       time:
