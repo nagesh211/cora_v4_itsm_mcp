@@ -616,11 +616,30 @@ class _Builder:
 
 
 def _guard_readonly(sql: str) -> None:
-    stripped = sql.lstrip().lower()
-    if not (stripped.startswith("select") or stripped.startswith("with")):
-        raise BuilderError("refusing non-SELECT SQL")
-    if ";" in sql:
-        raise BuilderError("refusing SQL containing ';'")
+    """Belt-and-suspenders check on SQL this module already built
+    deterministically from a validated QuerySpec. Delegates the real safety
+    check to :mod:`cora_mcp.sql_guard` (AST-walk: mutating nodes anywhere in
+    the tree, blocked system schemas/tables, blocked functions) so this
+    builder and the free-text ``run_postgres_sql``/``generate_sql`` tools
+    share one definition of "safe", not two that can drift apart. Falls back
+    to the old cheap string check only if sqlglot itself is unavailable."""
+    from cora_mcp import sql_guard
+    if sql_guard.sqlglot is None:
+        stripped = sql.lstrip().lower()
+        if not (stripped.startswith("select") or stripped.startswith("with")):
+            raise BuilderError("refusing non-SELECT SQL")
+        if ";" in sql:
+            raise BuilderError("refusing SQL containing ';'")
+        return
+    try:
+        tree = sql_guard.sqlglot.parse_one(sql, dialect="postgres")
+        sql_guard.assert_safe_ast(tree)
+    except sql_guard.SQLGuardError as exc:
+        raise BuilderError(str(exc)) from exc
+    except Exception:
+        # This builder's own output failing to parse would be a bug in this
+        # module, not an unsafe query — don't mask it as a guard rejection.
+        raise
 
 
 def build(spec) -> BuildResult:

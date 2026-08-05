@@ -669,13 +669,136 @@ def _sql_pushdown_ratio_group_by(tree, config, dim_list, fields, schema, table):
     return tree.sql(dialect="postgres")
 
 
+def _sql_two_branch_keyed(select_node, ctes):
+    """Like ``_sql_two_branch_ratio``, but for the OTHER common two-branch
+    comparison shape: each branch is ALREADY an independently aggregated
+    ``SELECT ... GROUP BY`` (typically by a shared time grain, e.g. month),
+    and the two are combined with a JOIN whose ON-clause is a plain
+    AND-of-equalities pinning that shared grain (e.g. a "created vs closed by
+    month" ``FULL OUTER JOIN ON created.month = closed.month``). This is the
+    shape ``_sql_two_branch_ratio`` deliberately declines (it requires NO
+    existing join predicate and NO pre-existing GROUP BY) — a widget already
+    keyed on a grain still has a real, generically-addable dimension pushdown
+    available, just a different rewrite: widen the grain instead of
+    inventing one.
+
+    Returns ``(sel1, alias1), (sel2, alias2), join_node`` or ``None`` if:
+    more than two sources, no existing ON, either branch ISN'T already
+    grouped (that's ``_sql_two_branch_ratio``'s shape instead), or the ON is
+    anything other than a plain conjunction of ``branch1.col = branch2.col``
+    equalities (a real relational join condition is out of scope for a
+    generic pushdown — refuse rather than guess)."""
+    frm = select_node.args.get("from_")
+    joins = select_node.args.get("joins") or []
+    if not frm or len(joins) != 1:
+        return None
+    on = joins[0].args.get("on")
+    if on is None or joins[0].args.get("using"):
+        return None
+
+    def resolve(node):
+        if isinstance(node, exp.Subquery):
+            return node.this, node.alias_or_name
+        if isinstance(node, exp.Table) and node.name.lower() in ctes:
+            return ctes[node.name.lower()], node.alias_or_name
+        return None, None
+
+    sel1, alias1 = resolve(frm.this)
+    sel2, alias2 = resolve(joins[0].this)
+    if sel1 is None or sel2 is None:
+        return None
+    if not (sel1.args.get("group") and sel2.args.get("group")):
+        return None
+
+    def _is_cross_alias_equality(node):
+        if not isinstance(node, exp.EQ):
+            return False
+        l, r = node.this, node.expression
+        if not (isinstance(l, exp.Column) and isinstance(r, exp.Column)):
+            return False
+        pair = {(l.table or "").lower(), (r.table or "").lower()}
+        return pair == {alias1.lower(), alias2.lower()}
+
+    def _all_equalities(node):
+        if isinstance(node, exp.And):
+            return _all_equalities(node.this) and _all_equalities(node.expression)
+        return _is_cross_alias_equality(node)
+
+    if not _all_equalities(on):
+        return None
+    return (sel1, alias1), (sel2, alias2), joins[0]
+
+
+def _sql_pushdown_keyed_branch_group_by(tree, config, dim_list, fields, schema, table):
+    """Handle the "two branches, each already GROUP BY'd and joined on a
+    shared grain key" shape (see ``_sql_two_branch_keyed``) — e.g. a
+    "created vs closed by month" widget. Pushes ``dim_list`` down into EACH
+    branch's OWN GROUP BY (widening it alongside the existing grain column,
+    not replacing it — the widget's time grain and the requested breakdown
+    both survive), widens the join's ON-clause to also equate the new
+    dimension (so rows only line up when both the grain AND the dimension
+    match), and exposes ``COALESCE(branch1.grp, branch2.grp) AS grp`` on the
+    outer SELECT — same reasoning as ``_sql_pushdown_ratio_group_by``: FULL
+    OUTER semantics mean a dimension value present on only one side (e.g. a
+    vendor with created activity but zero closed activity that period) is
+    never silently dropped. Raises ``ValueError`` if this isn't that shape,
+    or the dimension isn't reachable in one of the two branches."""
+    ctes = _cte_map(tree)
+    two = _sql_two_branch_keyed(tree, ctes)
+    if two is None:
+        raise ValueError(
+            "table/dimension mode is not supported for SQL-mode KPI %r: its "
+            "two-branch comparison query isn't the plain grain-keyed shape "
+            "either (either branch isn't already GROUP BY'd, or the join "
+            "predicate is more than a simple key equality) — cannot "
+            "generically add a dimension here. Use its drilldown breakdown "
+            "or a DSL KPI instead." % config.get("name"))
+    (sel1, alias1), (sel2, alias2), join = two
+
+    grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
+    cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
+    for sel, alias in ((sel1, alias1), (sel2, alias2)):
+        chain, base_alias = _sql_dimension_chain(sel, ctes, schema, table)
+        if chain is None:
+            raise ValueError(
+                "table/dimension mode is not supported for SQL-mode KPI %r: "
+                "its primary table %r isn't reachable in branch %r of this "
+                "comparison query." % (config.get("name"), table, alias))
+        _apply_dimension_chain(chain, base_alias, cols, grp_names)
+
+    on_expr = join.args.get("on")
+    for g in grp_names:
+        cond = exp.EQ(this=exp.column(g, table=alias1), expression=exp.column(g, table=alias2))
+        on_expr = exp.And(this=on_expr, expression=cond)
+    join.set("on", on_expr)
+
+    coalesced = []
+    for g in grp_names:
+        expr = sqlglot.parse_one("SELECT COALESCE(%s.%s, %s.%s) AS %s"
+                                 % (alias1, g, alias2, g, g), read="postgres").expressions[0]
+        tree.append("expressions", expr)
+        coalesced.append(expr.this.copy())
+    if _needs_group_by(tree):
+        existing = tree.args.get("group")
+        if existing:
+            for c in coalesced:
+                existing.append("expressions", c)
+        else:
+            tree.set("group", exp.Group(expressions=coalesced))
+
+    return tree.sql(dialect="postgres")
+
+
 def _sql_pushdown_group_by(sql, config, dim_list, fields):
     """Push ``dim_list`` down to the KPI's primary table through a chain of
     wrapping CTEs/subqueries, and thread it back up to the outermost SELECT —
-    see the module comment above. Falls back to
-    ``_sql_pushdown_ratio_group_by`` for the "two independently-aggregated
-    branches" shape a single chain can't reach. Returns the rewritten SQL, or
-    raises ``ValueError`` if the query is neither shape."""
+    see the module comment above. Falls back, in order, to
+    ``_sql_pushdown_keyed_branch_group_by`` (two branches already GROUP BY'd
+    and joined on a shared grain key — e.g. a "created vs closed by month"
+    widget) and then ``_sql_pushdown_ratio_group_by`` (two bare,
+    independently-aggregated totals with no existing join key) for the
+    two-branch shapes a single chain can't reach. Returns the rewritten SQL,
+    or raises ``ValueError`` if the query matches none of the three shapes."""
     if sqlglot is None:
         raise ValueError("sqlglot is not installed; cannot push a dimension "
                          "through a wrapped SQL-mode KPI's nested query")
@@ -691,13 +814,15 @@ def _sql_pushdown_group_by(sql, config, dim_list, fields):
                          "dimension pushdown: %s" % (config.get("name"), exc)) from exc
     ctes = _cte_map(tree)
     chain, base_alias = _sql_dimension_chain(tree, ctes, schema, table)
-    if chain is None:
-        return _sql_pushdown_ratio_group_by(tree, config, dim_list, fields, schema, table)
+    if chain is not None:
+        grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
+        cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
+        _apply_dimension_chain(chain, base_alias, cols, grp_names)
+        return tree.sql(dialect="postgres")
 
-    grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
-    cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
-    _apply_dimension_chain(chain, base_alias, cols, grp_names)
-    return tree.sql(dialect="postgres")
+    if _sql_two_branch_keyed(tree, ctes) is not None:
+        return _sql_pushdown_keyed_branch_group_by(tree, config, dim_list, fields, schema, table)
+    return _sql_pushdown_ratio_group_by(tree, config, dim_list, fields, schema, table)
 
 
 def _sql_inject_group_by(sql, config, dim_list, fields):

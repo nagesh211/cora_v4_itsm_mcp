@@ -47,6 +47,100 @@ from cora_mcp.sql_builder import BuilderError
 log = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Free-text SQL support (generate_sql / run_postgres_sql / resolve_filter_value)
+#
+# Every other tool in this module builds SQL deterministically from a
+# validated spec (sql_builder.QuerySpec) or an authored KPI config
+# (gen_query) — the LLM never writes SQL text itself. That's the safest
+# design, but it can't express every shape: a single query that computes TWO
+# independent metrics per dimension value in one row (e.g. "incidents created
+# vs closed last month by vendor") needs conditional aggregation
+# (`count(...) FILTER (WHERE ...)` / `count(case when ... end)`), which
+# neither an authored KPI's fixed comparison-widget SQL nor
+# sql_builder.QuerySpec (one measure per call) can express today. These three
+# functions are the escape hatch for that shape — gated by cora_mcp.sql_guard
+# (an AST-based read-only check, not the old string-prefix one) since this SQL
+# is free text the LLM wrote, not something this module already validated.
+# ---------------------------------------------------------------------------
+
+# Business-rule row exclusions baked into some governed KPIs' authored SQL
+# (see e.g. itsm/incidents-user-reported-incident-created-vs-closed.json)
+# that a hand-written query does NOT get for free. Seeded from what's been
+# found so far — NOT exhaustive; cross-check describe_kpi on a similarly
+# named governed KPI for the entity before assuming none apply.
+STANDARD_EXCLUSIONS: Dict[str, List[str]] = {
+    "itsm_incident": [
+        "status_name != 'CANCELED' -- exclude cancelled incidents unless the "
+        "question is specifically about cancellations",
+        "coalesce(contact_type, 'Channel is Empty') <> 'SYSTEM GENERATED' -- "
+        "exclude system-generated tickets from 'user reported' style counts",
+        "open_by_full_name != 'DNAC.INTEGRATION' -- exclude automation-opened "
+        "tickets from 'user reported' style counts",
+    ],
+}
+
+
+def _sql_presence_report(sql: str, dimensions: List[str], filters: List[str],
+                         dialect: str = "postgres") -> Dict[str, Any]:
+    """Check whether the dimension/filter WORDS the caller intended actually
+    show up in the parsed SQL's GROUP BY / WHERE (+ JOIN ON) clauses.
+
+    This is a text-containment heuristic over the parsed-and-reprinted SQL,
+    not a full semantic proof: a dimension/filter expressed through a very
+    differently-named physical column may show as "missing" even though it's
+    genuinely applied (read the returned `sql` to confirm either way). It
+    exists to catch the common, exact failure this whole investigation was
+    about: a dimension or filter the caller MEANT to apply that never actually
+    made it into the query text at all.
+    """
+    import sqlglot
+    from sqlglot import exp
+    tree = sqlglot.parse_one(sql, dialect=dialect)
+
+    group_texts = [e.sql(dialect=dialect).lower()
+                   for grp in tree.find_all(exp.Group) for e in grp.expressions]
+    select_texts = [proj.sql(dialect=dialect).lower()
+                    for sel in tree.find_all(exp.Select) for proj in sel.expressions]
+    where_texts = [w.this.sql(dialect=dialect).lower() for w in tree.find_all(exp.Where)]
+    join_texts = [j.sql(dialect=dialect).lower() for j in tree.find_all(exp.Join)]
+
+    group_blob = " | ".join(group_texts)
+    select_blob = " | ".join(select_texts)
+    where_blob = " | ".join(where_texts + join_texts)
+
+    def _norm(word: str) -> str:
+        return word.strip().lower().replace(" ", "_")
+
+    applied_dims, missing_dims, select_only_dims = [], [], []
+    for d in dimensions:
+        w = _norm(d)
+        if w and w in group_blob:
+            applied_dims.append(d)
+        elif w and w in select_blob:
+            select_only_dims.append(d)
+        else:
+            missing_dims.append(d)
+
+    applied_filters, missing_filters = [], []
+    for f in filters:
+        w = _norm(f)
+        (applied_filters if (w and w in where_blob) else missing_filters).append(f)
+
+    return {
+        "applied_dimensions": applied_dims,
+        "dimensions_in_select_but_not_grouped": select_only_dims,
+        "missing_dimensions": missing_dims,
+        "applied_filters": applied_filters,
+        "missing_filters": missing_filters,
+        "has_group_by": bool(group_texts),
+        "presence_check_note": (
+            "text-containment heuristic over the parsed SQL, not a full semantic "
+            "proof -- a 'missing' dimension/filter may still be applied under a "
+            "very differently-named column; read `sql` to confirm."),
+    }
+
+
 def _log_call(name: str, **kv: Any):
     log.info("TOOL %s | %s", name, ", ".join(f"{k}={v!r}" for k, v in kv.items()))
     return time.perf_counter()
@@ -258,6 +352,21 @@ def _register_core(mcp) -> List[str]:
         labelled with the user's own phrase, plus a `comparison_windows` block. Do
         NOT split it into two calls with one period each, and do NOT set
         `comparison=True` for it (that flag means the prior-YEAR window).
+
+        TWO-METRIC COMPARISON GROUPED BY A DIMENSION ("incidents created vs
+        closed last month by vendor") is a DIFFERENT shape from the above —
+        that's ONE metric compared across two time windows; this is TWO
+        metrics compared per dimension value in ONE window. If the result
+        comes back with `dropped_dim`/`dimension_note` set (the KPI couldn't
+        honour the requested `dim`), do NOT silently answer with the
+        dimension missing, and do NOT paper over it by calling run_kpi twice
+        (once per metric) and merging the two tables yourself — that merge
+        has no outer-join guarantee here and can drop a dimension value that
+        only has activity on one side (e.g. a vendor with 0 closes). Use
+        run_postgres_sql instead: write ONE query with conditional
+        aggregation (`count(case when ... end)` per metric), which guarantees
+        every dimension value appears for both metrics. See run_postgres_sql's
+        docstring for the exact pattern.
         """
         t0 = _log_call("generate_query", kpi=kpi, period=period, mode=mode,
                        dim=dim, grain=grain, filters=filters, comparison=comparison)
@@ -301,6 +410,15 @@ def _register_core(mcp) -> List[str]:
         window per side (`comparison_side`: previous/current) and, for stat mode, a
         ready-made `comparison_summary` {previous, current, delta, pct_change,
         direction} — report those numbers rather than recomputing them.
+
+        TWO-METRIC COMPARISON GROUPED BY A DIMENSION ("incidents created vs
+        closed last month by vendor") — see generate_query's docstring for
+        why this differs from a period comparison. If this call's result
+        carries `dropped_dim`/`dimension_note`, switch to run_postgres_sql
+        rather than accepting the answer with the dimension missing, or
+        calling run_kpi again for the second metric and merging the two
+        tables yourself (no outer-join guarantee exists for that merge here —
+        it can drop a dimension value that only has activity on one side).
         """
         t0 = _log_call("run_kpi", kpi=kpi, period=period, mode=mode, dim=dim,
                        grain=grain, filters=filters, comparison=comparison, limit=limit)
@@ -700,6 +818,224 @@ def _register_core(mcp) -> List[str]:
                   f"-> {len(detail['dimensions'])} dims, {len(detail['measures'])} measures")
         return detail
 
+    def resolve_filter_value(dataset: str, column: str, value: str) -> Dict[str, Any]:
+        """Resolve a user-typed filter VALUE to what's actually stored for a
+        column — the same deterministic resolver run_kpi/compose_metric/
+        query_dataset already use internally (exact match -> curated synonym
+        -> fuzzy near-match -> reject).
+
+        Call this BEFORE inlining a literal into hand-written SQL
+        (run_postgres_sql) whenever the value names a real-world thing (a
+        vendor, sector, status, priority, ...) rather than a number or date.
+        A user typing "Wipro" when the column stores "WIPRO LTD" produces a
+        query that runs fine and returns zero rows — indistinguishable from
+        "there is no data" unless the value was resolved first.
+
+        Args:
+          dataset: entity slug from describe_dataset (e.g. 'itsm_incident').
+          column: the column/dimension word (e.g. 'vendor', or its physical
+            name if you already know it).
+          value: what the user said.
+
+        Returns {column, input, resolved, matched, method, valid_values}.
+        `method` is exact|synonym|fuzzy|passthrough|reject. If `matched` is
+        False, `valid_values` lists the column's real domain — surface it or
+        ask the user which one they meant rather than guessing or silently
+        filtering on the unresolved literal.
+        """
+        from cora_mcp import value_resolver
+        from cora_mcp.column_resolver import resolve_column_detail
+        t0 = _log_call("resolve_filter_value", dataset=dataset, column=column, value=value)
+        loader = get_loader()
+        detail = loader.entity_detail(dataset)
+        if detail is None:
+            _log_done("resolve_filter_value", t0, "-> unknown dataset")
+            return {"error": f"unknown dataset {dataset!r}",
+                    "available_datasets": [slug for _m, slug, _e in loader.all_entities()]}
+        possible = (detail.get("possible_values") or {}).get(column)
+        if possible is None:
+            # `column` may be a business word (e.g. "vendor"), not the physical
+            # column name (e.g. "it_vendor_name") possible_values is keyed by.
+            for fqn in detail_table_fqns(detail):
+                real, _how = resolve_column_detail(fqn, column, roles=("dimension", "filter"))
+                if real:
+                    possible = (detail.get("possible_values") or {}).get(real)
+                    if possible is not None:
+                        column = real
+                        break
+        r = value_resolver.resolve_value(column, value, possible)
+        out = {"column": column, "input": value, "resolved": r.resolved,
+               "matched": r.matched, "method": r.method, "valid_values": r.valid_values}
+        _log_done("resolve_filter_value", t0, f"-> {r.method}")
+        return out
+
+    async def generate_sql(
+        sql: str,
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
+        dialect: str = "postgres",
+    ) -> Dict[str, Any]:
+        """DRY-RUN a hand-written SQL SELECT: check it's safe and well-formed,
+        and whether the dimensions/filters you INTENDED actually made it into
+        the query — all WITHOUT executing it or reading a single row.
+
+        Call this before run_postgres_sql whenever you hand-wrote SQL
+        yourself, especially for a "compare two metrics grouped by a
+        dimension" question (e.g. "incidents created vs closed last month by
+        vendor") — exactly the class of question where a dimension or one
+        side of the comparison has been found to silently go missing. Pass
+        the dimension/filter words you MEANT to apply and get back whether
+        they actually show up in GROUP BY / WHERE, instead of trusting your
+        own SQL by eye.
+
+        Args:
+          sql: the SELECT/WITH/UNION statement to check.
+          dimensions: dimension words you intended to GROUP BY (e.g.
+            ["vendor"]) — checked for presence in the query's GROUP BY.
+          filters: filter words you intended to apply (e.g. ["status"]) —
+            checked for presence in the query's WHERE/JOIN ON.
+          dialect: SQL dialect (default 'postgres').
+
+        Returns:
+          sql: your SQL with a LIMIT enforced (added if you omitted one).
+          applied_dimensions / missing_dimensions: which requested dimension
+            words were found (or not) in the GROUP BY.
+          dimensions_in_select_but_not_grouped: a requested dimension appears
+            in SELECT but with no GROUP BY on it -- it will NOT break the
+            numbers down per value, just repeat one value on every row.
+          applied_filters / missing_filters: which requested filter words
+            were found (or not) in WHERE/JOIN ON.
+          schema_check: {ok: true} if the live database's own parser accepted
+            the statement (Parse+Describe -- zero rows read), or its error if
+            a column/table doesn't actually exist. `null` if no database is
+            configured (not treated as a failure).
+          error: set INSTEAD of the above if the SQL was rejected outright --
+            a syntax error, or the read-only guard blocked it (see
+            run_postgres_sql's docstring for exactly what's blocked and why).
+
+        Note: this does NOT check for missing standard business-rule row
+        exclusions (e.g. excluding cancelled/system-generated records) -- see
+        run_postgres_sql's docstring for the known per-entity list. A query
+        can pass this dry-run cleanly (safe, grouped, filtered exactly as
+        intended) and still silently include rows a governed KPI would have
+        excluded.
+        """
+        t0 = _log_call("generate_sql", sql=sql, dimensions=dimensions, filters=filters)
+        from cora_mcp import sql_guard
+        try:
+            checked_sql = sql_guard.check_readonly_sql(sql, dialect=dialect)
+        except sql_guard.SQLGuardError as exc:
+            _log_done("generate_sql", t0, "-> guard rejected")
+            return {"error": str(exc), "sql": sql}
+
+        try:
+            report = _sql_presence_report(checked_sql, dimensions or [], filters or [], dialect)
+        except Exception as exc:
+            report = {"presence_check_error": f"could not analyse SQL structure: {exc}"}
+
+        out: Dict[str, Any] = {"sql": checked_sql, **report}
+
+        from cora_mcp import db as _db
+        try:
+            v = await _db.validate(dialect, None, checked_sql, [], plan=False)
+            out["schema_check"] = {"ok": True, "param_types": v.get("param_types")}
+        except _db.DBNotConfigured:
+            out["schema_check"] = None
+        except _db.DBError as exc:
+            out["schema_check"] = {"ok": False, "error": str(exc)}
+        _log_done("generate_sql", t0,
+                  f"-> missing_dims={out.get('missing_dimensions')} "
+                  f"missing_filters={out.get('missing_filters')}")
+        return out
+
+    async def run_postgres_sql(
+        sql: str,
+        limit: int = 200,
+    ) -> Dict[str, Any]:
+        """Execute a hand-written, read-only Postgres SQL SELECT and return
+        the rows. Only SELECT / WITH / UNION are allowed -- no INSERT/UPDATE/
+        DELETE/DDL anywhere in the statement (including hidden inside a CTE),
+        no querying information_schema/pg_catalog/pg_*, no session/file/
+        network functions (pg_sleep, dblink*, set_config, pg_terminate_backend,
+        ...). See cora_mcp.sql_guard for the exact rules -- anything it
+        rejects comes back as `error`, never a raw driver exception.
+
+        USE THIS as the escape hatch for questions no governed KPI (run_kpi)
+        or the structured builder (query_dataset / compose_metric) can
+        express in ONE call -- most notably a "metric A vs metric B, grouped
+        by dimension X" comparison (e.g. "incidents created vs closed last
+        month by vendor"). Write ONE query with conditional aggregation
+        instead of two separate KPI calls you would have to merge yourself:
+
+            SELECT it_vendor_name AS vendor,
+                   count(distinct case when created_date_time
+                         between '2026-07-01 00:00:00' and '2026-07-31 23:59:59'
+                         then incident_id end) AS created_count,
+                   count(distinct case when closed_date_time
+                         between '2026-07-01 00:00:00' and '2026-07-31 23:59:59'
+                         then incident_id end) AS closed_count
+            FROM itsm_incident.tbl_all_incidents
+            GROUP BY it_vendor_name
+
+        This is deliberately preferred over two separate run_kpi calls for
+        this shape: one table scan, one GROUP BY, both metrics guaranteed
+        present for every vendor -- including a vendor with zero of one side
+        -- with no client-side merge that can silently drop a metric or a
+        dimension value.
+
+        BEFORE WRITING SQL:
+          1. Call describe_dataset(<entity slug>) for real column names and
+             each column's `possible_values` -- never invent a column name or
+             guess a stored value's spelling.
+          2. Call resolve_dates(period) for any date/time phrase ("last
+             month", "MTD", ...) and splice start_date/end_date into your
+             WHERE -- do not compute date math yourself.
+          3. Call resolve_filter_value(dataset, column, value) for every
+             filter value that names a real-world thing (a vendor, sector,
+             status, ...) -- do not inline the user's literal spelling
+             unresolved.
+          4. Call generate_sql first to dry-run your query (checks it is
+             well-formed, safe, and that your intended dimensions/filters
+             actually made it into GROUP BY/WHERE) -- cheap, reads no rows,
+             and catches the exact "dimension silently missing" failure this
+             tool exists to avoid.
+
+        STANDARD BUSINESS-RULE EXCLUSIONS -- a governed KPI's authored SQL
+        often excludes rows a naive query would include (cancelled records,
+        automation-generated tickets, etc.). Free-text SQL does NOT get these
+        automatically. Known exclusions (NOT exhaustive -- cross-check
+        describe_kpi on a similarly named governed KPI for the entity before
+        assuming none apply):
+          itsm_incident (user-reported style counts):
+            status_name != 'CANCELED'
+            AND coalesce(contact_type, 'Channel is Empty') <> 'SYSTEM GENERATED'
+            AND open_by_full_name != 'DNAC.INTEGRATION'
+
+        Args:
+          sql: the SELECT/WITH/UNION statement to run. No separate params
+            list -- inline literals (resolve any user-facing value with
+            resolve_filter_value first, then inline the resolved literal).
+          limit: max rows returned (default 200, hard cap 5000) -- enforced
+            whether or not your SQL already has a LIMIT.
+        """
+        t0 = _log_call("run_postgres_sql", sql=sql, limit=limit)
+        from cora_mcp import sql_guard, db as _db
+        cap = max(1, min(int(limit or 200), sql_guard.MAX_LIMIT))
+        try:
+            checked_sql = sql_guard.check_readonly_sql(
+                sql, dialect="postgres", default_limit=cap, max_limit=cap)
+        except sql_guard.SQLGuardError as exc:
+            log.warning("run_postgres_sql rejected: %s", exc)
+            return {"error": str(exc), "sql": sql}
+        try:
+            out = await _db.execute("postgres", None, checked_sql, [], limit=cap)
+        except _db.DBError as exc:
+            log.warning("run_postgres_sql failed: %s", exc)
+            return {"error": str(exc), "sql": checked_sql}
+        out["sql"] = checked_sql
+        _log_done("run_postgres_sql", t0, f"-> {out.get('rowcount')} row(s)")
+        return out
+
     names = []
     for fn, name in [
         (resolve_dates, "resolve_dates"),
@@ -720,6 +1056,9 @@ def _register_core(mcp) -> List[str]:
         (overview_module, "overview_module"),
         (describe_module, "describe_module"),
         (describe_dataset, "describe_dataset"),
+        (resolve_filter_value, "resolve_filter_value"),
+        (generate_sql, "generate_sql"),
+        (run_postgres_sql, "run_postgres_sql"),
     ]:
         mcp.add_tool(_dedup(fn, name), name=name)
         names.append(name)
