@@ -540,8 +540,29 @@ async def generate_query(
     # instead of overriding it with the KPI's default CYTD comparison window.
     explicit_window = bool((from_date and to_date) or period)
 
-    eff_dim = _effective_dim(config, mode, dim)
     mode_note: Optional[str] = None
+    if mode == "stat" and dim:
+        # A stat request that ALSO names a breakdown dimension means "give me
+        # this metric AS A BREAKDOWN", not "compute the overall number and
+        # silently ignore the dimension" -- stat mode's payload has no
+        # group_by_dim slot at all (gen_query.build_payload never sets one for
+        # it), so honouring `dim` here means actually switching to table mode,
+        # the same way the opposite case just below falls back FROM table mode
+        # TO stat mode when no dimension was given. `comparison` (prior-YEAR
+        # window) is a stat-only concept table mode has no slot for either --
+        # rather than silently drop one of the two things the caller asked
+        # for, require they be requested separately.
+        if comparison:
+            raise QueryError(
+                f"can't combine dim={dim!r} (a breakdown) with comparison=True "
+                f"(the prior-year window) in one mode='stat' call for {kpi!r} -- "
+                "these need different modes. Run the breakdown as mode='table' "
+                "(no comparison), or the comparison as mode='stat' (no dim).")
+        mode_note = (f"dim={dim!r} was requested with mode='stat'; a breakdown "
+                     "needs mode='table', so this ran as mode='table' instead.")
+        mode = "table"
+
+    eff_dim = _effective_dim(config, mode, dim)
     if mode == "table" and not eff_dim:
         if cmp_pair:
             # A period comparison IS the grouping: one value per compared window.
