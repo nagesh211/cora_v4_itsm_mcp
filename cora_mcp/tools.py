@@ -942,7 +942,14 @@ def _register_core(mcp) -> List[str]:
         except _db.DBNotConfigured:
             out["schema_check"] = None
         except _db.DBError as exc:
-            out["schema_check"] = {"ok": False, "error": str(exc)}
+            schema_check: Dict[str, Any] = {"ok": False, "error": str(exc)}
+            from cora_mcp import sql_autofix
+            fix = sql_autofix.suggest_fix(checked_sql, dialect, str(exc))
+            if fix.get("fixed_sql"):
+                schema_check["suggested_fix"] = {"sql": fix["fixed_sql"], "note": fix["note"]}
+            elif fix.get("hints"):
+                schema_check["hints"] = fix["hints"]
+            out["schema_check"] = schema_check
         _log_done("generate_sql", t0,
                   f"-> missing_dims={out.get('missing_dimensions')} "
                   f"missing_filters={out.get('missing_filters')}")
@@ -951,6 +958,8 @@ def _register_core(mcp) -> List[str]:
     async def run_postgres_sql(
         sql: str,
         limit: int = 200,
+        dimensions: Optional[List[str]] = None,
+        filters: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Execute a hand-written, read-only Postgres SQL SELECT and return
         the rows. Only SELECT / WITH / UNION are allowed -- no INSERT/UPDATE/
@@ -994,11 +1003,10 @@ def _register_core(mcp) -> List[str]:
              filter value that names a real-world thing (a vendor, sector,
              status, ...) -- do not inline the user's literal spelling
              unresolved.
-          4. Call generate_sql first to dry-run your query (checks it is
-             well-formed, safe, and that your intended dimensions/filters
-             actually made it into GROUP BY/WHERE) -- cheap, reads no rows,
-             and catches the exact "dimension silently missing" failure this
-             tool exists to avoid.
+          4. Optionally call generate_sql first to dry-run your query -- but
+             this tool now runs the SAME presence check and, on a Postgres
+             error, the SAME self-correction pass itself, so skipping that
+             call no longer skips the protection.
 
         STANDARD BUSINESS-RULE EXCLUSIONS -- a governed KPI's authored SQL
         often excludes rows a naive query would include (cancelled records,
@@ -1017,6 +1025,10 @@ def _register_core(mcp) -> List[str]:
             resolve_filter_value first, then inline the resolved literal).
           limit: max rows returned (default 200, hard cap 5000) -- enforced
             whether or not your SQL already has a LIMIT.
+          dimensions: optional dimension words you intended to GROUP BY --
+            checked for presence in the GROUP BY, same as generate_sql.
+          filters: optional filter words you intended to apply -- checked for
+            presence in WHERE/JOIN ON, same as generate_sql.
         """
         t0 = _log_call("run_postgres_sql", sql=sql, limit=limit)
         from cora_mcp import sql_guard, db as _db
@@ -1028,11 +1040,42 @@ def _register_core(mcp) -> List[str]:
             log.warning("run_postgres_sql rejected: %s", exc)
             return {"error": str(exc), "sql": sql}
         try:
+            presence = _sql_presence_report(checked_sql, dimensions or [], filters or [],
+                                            "postgres")
+        except Exception as exc:
+            presence = {"presence_check_error": f"could not analyse SQL structure: {exc}"}
+        try:
             out = await _db.execute("postgres", None, checked_sql, [], limit=cap)
         except _db.DBError as exc:
             log.warning("run_postgres_sql failed: %s", exc)
-            return {"error": str(exc), "sql": checked_sql}
+            from cora_mcp import sql_autofix
+            fix = sql_autofix.suggest_fix(checked_sql, "postgres", str(exc))
+            fixed_sql = fix.get("fixed_sql")
+            if fixed_sql:
+                try:
+                    retried_sql = sql_guard.check_readonly_sql(
+                        fixed_sql, dialect="postgres", default_limit=cap, max_limit=cap)
+                    retry_out = await _db.execute("postgres", None, retried_sql, [], limit=cap)
+                except (sql_guard.SQLGuardError, _db.DBError) as retry_exc:
+                    log.warning("run_postgres_sql auto-fix retry also failed: %s", retry_exc)
+                    return {"error": str(exc), "sql": checked_sql, **presence,
+                             "attempted_fix": {"sql": fixed_sql, "note": fix["note"],
+                                                "retry_error": str(retry_exc)}}
+                retry_out["sql"] = retried_sql
+                retry_out["auto_corrected"] = {"from_sql": checked_sql, "to_sql": retried_sql,
+                                               "reason": fix["note"]}
+                try:
+                    retry_out.update(_sql_presence_report(retried_sql, dimensions or [],
+                                                          filters or [], "postgres"))
+                except Exception:
+                    retry_out.update(presence)
+                _log_done("run_postgres_sql", t0,
+                          f"-> auto-corrected, {retry_out.get('rowcount')} row(s)")
+                return retry_out
+            return {"error": str(exc), "sql": checked_sql, **presence,
+                     "hints": fix.get("hints", [])}
         out["sql"] = checked_sql
+        out.update(presence)
         _log_done("run_postgres_sql", t0, f"-> {out.get('rowcount')} row(s)")
         return out
 

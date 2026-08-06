@@ -101,6 +101,12 @@ class SchemaLoader:
         rec = self._by_table.get(fqn)
         return rec[2] if rec else None
 
+    def known_table_fqns(self) -> List[str]:
+        """Every ``schema.table`` this catalog knows about -- used to suggest a
+        near-match for a table name that doesn't exist (e.g. free-text SQL that
+        typo'd a relation)."""
+        return list(self._by_table.keys())
+
     def table_columns(self, fqn: str) -> Dict[str, dict]:
         rec = self._by_table.get(fqn)
         if not rec:
