@@ -36,7 +36,7 @@ from cora_mcp import db, module_registry, sql_alias
 from cora_mcp.date_resolver import bucket_windows, resolve_dates
 from cora_mcp.kpi_catalog import get_catalog
 from cora_mcp.logging_config import get_logger
-from cora_mcp.opensearch_client import config_dimensions
+from cora_mcp.opensearch_client import available_group_by_terms, config_dimensions
 
 log = get_logger(__name__)
 
@@ -572,7 +572,7 @@ async def generate_query(
                          "periods are the grouping (one value per period).")
             mode = "stat"
         else:
-            dims = config_dimensions(config)
+            dims = available_group_by_terms(config)
             raise QueryError(
                 f"table mode needs a dimension for {kpi!r}; pass dim=<field>. "
                 f"available: {dims}")
@@ -584,6 +584,13 @@ async def generate_query(
     # series (a per-dimension trend also groups by the dimension).
     dim_names = ((eff_dim if isinstance(eff_dim, (list, tuple)) else [eff_dim])
                  if (mode in ("table", "series") and eff_dim) else [])
+    # Names not already in the KPI's curated `fields` are schema-fallback resolved --
+    # kept so a live-execution failure on one of them (schema_v3.yaml claims the
+    # column exists but the real table doesn't have it) can be diagnosed as schema
+    # drift rather than surfaced as an opaque driver error (see run_query below).
+    pre_fields = config.get("fields") or {}
+    schema_fallback_cols = sorted({n for n in [*dim_names, *filter_by.keys()]
+                                   if n and n not in pre_fields})
     config = _augment_fields(config, [*dim_names, *filter_by.keys()])
     _validate_filters(config, filter_by)
     filter_by = _resolve_filter_values(config, filter_by)
@@ -750,6 +757,8 @@ async def generate_query(
         out["dimension_note"] = dimension_note
     if mode_note:
         out["mode_note"] = mode_note
+    if schema_fallback_cols:
+        out["schema_fallback_columns"] = schema_fallback_cols
     if cmp_pair:
         out["comparison_windows"] = resolved_from_phrase["comparison"]
     log.info("generate_query kpi=%s mode=%s grain=%s window=%s..%s dim=%s -> %d result(s)%s%s",
@@ -757,6 +766,27 @@ async def generate_query(
              " [dim dropped]" if dimension_note else "",
              " [period comparison]" if cmp_pair else "")
     return out
+
+
+def _schema_drift_hint(exc_msg: str, fallback_columns: List[str]) -> Optional[str]:
+    """When a DB error is an undefined-column failure on a column that was only
+    reachable through the schema fallback (not the KPI's curated config), say so
+    plainly instead of leaving the caller to interpret a raw driver message.
+
+    ``schema_v3.yaml`` is maintained by hand and can drift ahead of the live
+    database (a column declared there was renamed/dropped in reality); the
+    fallback that lets ``dim=`` / ``filters=`` reach schema-only columns
+    (:func:`resolve_dim_via_schema`) has no way to verify the column actually
+    exists live before the query runs, so this is the first point such drift can
+    be caught."""
+    if "does not exist" not in exc_msg:
+        return None
+    for col in fallback_columns:
+        if f'"{col}"' in exc_msg:
+            return (f"{col!r} is declared on this KPI's table in schema_v3.yaml but "
+                    f"doesn't actually exist in the live database (schema drift) -- "
+                    f"retry without it, or use one of this KPI's curated fields/filters.")
+    return None
 
 
 async def run_query(
@@ -801,6 +831,10 @@ async def run_query(
             log.warning("run_query execution error for %s: %s", kpi, exc)
             res["error"] = str(exc)
             res["error_type"] = type(exc).__name__
+            drift = _schema_drift_hint(str(exc), out.get("schema_fallback_columns") or [])
+            if drift:
+                res["error"] += " -- " + drift
+                res["schema_drift"] = True
     if out.get("comparison_windows"):
         summary = _comparison_summary(out)
         if summary:
@@ -993,6 +1027,14 @@ async def module_overview(
                 if len(res) > 1 and not res[1].get("error"):
                     prev = _scalar_value(res[1].get("rows") or [])
                     entry["previous"] = prev
+                    # The comparison basis isn't always "last month" -- an
+                    # explicit window (like "current month") compares against
+                    # the SAME calendar dates a year ago, not the prior month,
+                    # so both windows are surfaced with their own label
+                    # (e.g. "previous-year window") rather than leaving the
+                    # caller to guess what "previous" was measured against.
+                    entry["previous_window"] = res[1].get("window")
+                    entry["previous_label"] = res[1].get("label")
                     try:
                         entry["delta"] = round(float(value) - float(prev), 4)
                     except (TypeError, ValueError):
@@ -1143,13 +1185,17 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
             spec.base = base_fqn
         dsl = cfg.get("dsl") or {}
         measures = dsl.get("measures") or []
+        wants_detail_only = bool(spec.drilldown and spec.drilldown.detail_columns)
         if measures and spec.measure is None:
             spec.measure = sql_builder.Measure(expression=measures[0]["expression"],
                                                alias=measures[0].get("alias", "value"))
-        elif not measures and spec.measure is None:
+        elif not measures and spec.measure is None and not wants_detail_only:
             # SQL-mode KPI: its metric formula lives in raw base_query, not in a
             # decomposable measure, so we CANNOT reuse it here. Refuse rather than
-            # silently returning count(*) mislabeled as the metric.
+            # silently returning count(*) mislabeled as the metric. This does NOT
+            # apply to a pure detail listing (drilldown/select, no aggregation) --
+            # that never needed a measure in the first place, only the anchored
+            # base table + date field, both of which come from config either way.
             raise QueryError(
                 f"metric {spec.metric!r} is a SQL-mode KPI whose formula can't be "
                 f"reused by query_dataset. Either call run_kpi/generate_query with "
@@ -1198,6 +1244,11 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
         log.warning("run_dataset_query execution error: %s", exc)
         result["error"] = str(exc)
         result["error_type"] = type(exc).__name__
+        fallback_cols = [info["column"] for info in (built.resolved_columns or {}).values()]
+        drift = _schema_drift_hint(str(exc), fallback_cols)
+        if drift:
+            result["error"] += " -- " + drift
+            result["schema_drift"] = True
 
     # Empty but valid? Diagnose WHY so the answer is useful, not a dead "no records".
     if not result.get("error") and result.get("rowcount") == 0:

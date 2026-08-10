@@ -57,6 +57,53 @@ async def test_query_dataset_cross_entity_inner_join():
 
 
 @pytest.mark.asyncio
+async def test_availability_impacting_predicate_matches_raw_sql_exactly():
+    """The availability_impacting predicate's hypercare + NON-IT group exclusions
+    (is_null condition + a binding-level semi_join) must reproduce the outage-count
+    KPI's own scoping logic exactly, not merely plausibly -- a predicate that's a
+    silent superset/subset is exactly the failure mode this layer exists to prevent.
+
+    Compared against hand-written raw SQL using the SAME date-window semantics the
+    composer applies (plain cast, no timezone shift) rather than against run_kpi's
+    own stat output -- the KPI's raw SQL additionally converts the_date_time from
+    GMT to America/Chicago before windowing, which query_dataset's generic date
+    builder does not do (a separate, pre-existing gap, not part of this predicate).
+    """
+    from cora_mcp import composer, db
+    from cora_mcp.query_engine import run_dataset_query
+
+    period_from, period_to = "2026-06-01", "2026-06-30 23:59:59"
+    ref = await db.execute("postgres", "vtx5", """
+        select count(distinct outage_system_id) as n,
+               sum(outage_seconds) as secs
+        from itsm_availability.tbl_tableau_outagesv4
+        where the_date_time between %s and %s
+          and outage_type = 'OUTAGE'
+          and business_criticality_value = '1 - most critical'
+          and hypercare_project_system_id is null
+          and support_group_system_id in (
+              select group_system_id from itsm.tbl_group_hierarchy
+              where service_area != 'NON-IT')
+        """, [period_from, period_to])
+    ref_count = ref["rows"][0]["n"]
+    ref_secs = ref["rows"][0]["secs"]
+
+    spec = composer.plan(predicates=["availability_impacting"],
+                         measure={"agg": "count_distinct", "column": "outage_system_id"},
+                         period="June 2026", date_field="the_date_time")
+    pred_out = await run_dataset_query(spec["spec"])
+    assert "error" not in pred_out, pred_out.get("error")
+    assert pred_out["rows"][0]["v"] == ref_count
+
+    spec_hours = composer.plan(predicates=["availability_impacting"],
+                               measure={"agg": "sum", "column": "outage_seconds"},
+                               period="June 2026", date_field="the_date_time")
+    hours_out = await run_dataset_query(spec_hours["spec"])
+    assert "error" not in hours_out, hours_out.get("error")
+    assert hours_out["rows"][0]["v"] == ref_secs
+
+
+@pytest.mark.asyncio
 async def test_query_dataset_drilldown_change_reason():
     from cora_mcp import db
     from cora_mcp.query_engine import run_dataset_query

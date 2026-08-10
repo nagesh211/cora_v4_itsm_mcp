@@ -1143,13 +1143,16 @@ def driver_substitute(config, payload):
       rewriting the authored query to also SELECT/GROUP BY the requested
       dimension(s) — see ``_sql_inject_group_by``. Groupability is decided by:
         1. an explicit ``allowed_group_by`` — a curated allowlist the author
-           vetted; a dim outside it is rejected even if it's a real column.
-        2. no ``allowed_group_by`` declared at all -> SCHEMA FALLBACK: a dim is
-           still groupable if its physical column is a real column on the KPI's
-           primary table (``schema_v3.yaml``), the same fallback already used
-           for filters and series/table dims elsewhere. A dim that's neither
-           curated nor a real schema column is rejected — use the KPI's
-           drilldown breakdown or a DSL KPI instead.
+           vetted; a dim IN it is always honoured.
+        2. SCHEMA FALLBACK (checked whether or not ``allowed_group_by`` was
+           declared): a dim outside the curated list -- or when none was
+           declared at all -- is still groupable if its physical column is a
+           real column on the KPI's primary table (``schema_v3.yaml``), the
+           same fallback already used for filters and series/table dims
+           elsewhere. This ADDS dims past the curated list; it never drops
+           one that IS curated. A dim that's neither curated nor a real
+           schema column is rejected -- use the KPI's drilldown breakdown or
+           a DSL KPI instead.
     """
     payload = payload or {}
     dims = payload.get("group_by_dim")
@@ -1157,30 +1160,26 @@ def driver_substitute(config, payload):
     fields = dict(get_fields(config))       # local copy: schema fallback may add entries
     if dim_list:
         allowed = sql_allowed_group_by(config)
-        schema_cols = None if allowed is not None else _sql_primary_table_columns(config)
+        schema_cols = _sql_primary_table_columns(config)
         pd_name = (config.get("primary_dataset") or {}).get("table") \
             or (config.get("primary_dataset") or {}).get("name")
         for d in dim_list:
-            if allowed is not None:
-                if d not in allowed:
-                    raise ValueError(
-                        "dimension %r is not groupable for SQL-mode KPI %r; allowed: %s"
-                        % (d, config.get("name"), sorted(allowed)))
+            if allowed is not None and d in allowed:
                 if d not in fields:
                     raise ValueError(
                         "dimension %r not defined in fields for %s" % (d, config.get("name")))
                 continue
-            # No allowed_group_by declared -> fall back to a real schema column.
-            # `d` may already be a declared field (use its physical column) or a
-            # bare column name the config never declared as a field at all.
+            # Not in the curated allowlist (or none was declared) -> fall back to a
+            # real schema column. `d` may already be a declared field (use its
+            # physical column) or a bare column name the config never declared.
             col = (fields.get(d) or {}).get("column", d)
             bare = col.rsplit(".", 1)[-1]        # strip any authored alias qualifier
             if not schema_cols or bare not in schema_cols:
                 raise ValueError(
-                    "table/dimension mode is not supported for SQL-mode KPI %r: "
-                    "dimension %r is neither in an allowed_group_by list (none "
-                    "declared) nor a real column on its primary table %r. Use "
-                    "its drilldown breakdown or a DSL KPI." % (config.get("name"), d, pd_name))
+                    "dimension %r is not groupable for SQL-mode KPI %r: not in its "
+                    "curated allowed_group_by (%s) and not a real column on its "
+                    "primary table %r. Use its drilldown breakdown or a DSL KPI."
+                    % (d, config.get("name"), sorted(allowed) if allowed else [], pd_name))
             if d not in fields:                  # synthesize so injection can use it
                 fields[d] = {"dataset": pd_name, "column": bare}
     bq = config["sql"]["base_query"]

@@ -516,7 +516,7 @@ async def main(
 
 if __name__ == "__main__":
     # Customize these values
-    CONFIG_PATH = "./itsm_new"  # Path to JSON files or single JSON file
+    CONFIG_PATH = "./itsm-updated"  # Path to JSON files or single JSON file
     OPENSEARCH_HOST = "10.64.4.28"
     OPENSEARCH_PORT = 9201
     OPENSEARCH_INDEX = "cora-kpi-configs-pep"

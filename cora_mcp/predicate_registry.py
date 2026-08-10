@@ -77,22 +77,33 @@ class Binding:
 
     ``note`` is maintainer-facing (how the values were verified). ``caveat`` is
     **user-facing**: the way this binding is knowingly not an exact expression of the
-    concept — e.g. ``availability_impacting`` cannot reproduce the availability KPI's
-    hypercare / non-IT exclusions because a condition supports neither ``IS NULL`` nor a
-    subquery, so its listing is a small superset. :func:`cora_mcp.composer.plan` copies
-    it into ``composition.notes`` for whichever binding actually ran, so the answer says
-    so instead of presenting a superset as exact.
+    concept. :func:`cora_mcp.composer.plan` copies it into ``composition.notes`` for
+    whichever binding actually ran, so the answer says so instead of presenting a
+    superset/subset as exact.
+
+    ``semi_joins`` is a list of EXISTS specs (same shape as
+    :class:`cora_mcp.sql_builder.SemiJoin`: ``table``, ``key_left``, ``key_right``,
+    ``filters``, ``negate``) that belong to THIS binding specifically — for a scoping
+    condition that lives on a *different* table than the one this binding is on (e.g.
+    "support group belongs to an IT service area", which requires an EXISTS against
+    ``itsm.tbl_group_hierarchy`` even though the binding itself is on the outage
+    table). This is distinct from :func:`cora_mcp.composer._semi_join_for`, which
+    builds an EXISTS for a predicate that binds to NO table other than one reached via
+    semi-join at all — here the binding already applies directly, and the semi-join is
+    just one more AND-ed condition it carries.
     """
 
-    __slots__ = ("table", "conditions", "note", "primary", "caveat")
+    __slots__ = ("table", "conditions", "note", "primary", "caveat", "semi_joins")
 
     def __init__(self, table: str, conditions: List[dict], note: Optional[str] = None,
-                 primary: bool = False, caveat: Optional[str] = None):
+                 primary: bool = False, caveat: Optional[str] = None,
+                 semi_joins: Optional[List[dict]] = None):
         self.table = table
         self.conditions = conditions or []
         self.note = note
         self.primary = bool(primary)
         self.caveat = caveat
+        self.semi_joins = semi_joins or []
 
     @property
     def is_free(self) -> bool:
@@ -129,7 +140,8 @@ class Predicate:
                     f"predicate {name!r} has a binding with no table")
             self._bindings[tbl] = Binding(tbl, b.get("conditions") or [], b.get("note"),
                                           primary=b.get("primary", False),
-                                          caveat=b.get("caveat"))
+                                          caveat=b.get("caveat"),
+                                          semi_joins=b.get("semi_joins"))
 
     def binding_for(self, table: str) -> Optional[Binding]:
         """The binding for ``table``, or None if this predicate cannot bind there."""

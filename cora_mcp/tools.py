@@ -747,6 +747,15 @@ def _register_core(mcp) -> List[str]:
         filter, and return a rollup (value, delta vs the comparison window,
         target and RAG status per KPI).
 
+        The comparison window is NOT always "last month": a named period like
+        "current month"/"this quarter" compares against the SAME calendar
+        dates one year ago (e.g. Aug 1-9 2026 vs Aug 1-9 2025), while a
+        CYTD-basis KPI with no period given compares CYTD vs PYTD instead.
+        Each KPI's `previous_window` (from/to) and `previous_label` say which
+        one was actually used -- when reporting a delta, say what it's versus
+        (e.g. "vs the same 9 days last year"), don't just say "improved from
+        X" and let the basis go unstated.
+
         Use this for broad questions like "what's happening in availability for
         the CGF sector" (module="availability", filters={"sector":"CGF"}) or
         "insights on the service desk for APAC" (module="service desk",

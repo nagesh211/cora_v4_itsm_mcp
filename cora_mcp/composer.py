@@ -466,11 +466,17 @@ def plan(
         spec_filters.append({"field": winner.bound_filters[word],
                              "op": "in" if len(vals) > 1 else "=", "values": vals})
     # Predicates that bind here become plain AND-ed conditions with DB-verified values.
+    # A binding may ALSO carry its own semi_joins -- an EXISTS clause it needs against a
+    # different table even though the binding itself applies directly on winner.table
+    # (e.g. "support group belongs to an IT service area"), distinct from _semi_join_for
+    # below, which is for predicates that bind to NO table but winner.table at all.
+    direct_semi_joins: List[Dict[str, Any]] = []
     for p in winner.direct:
         b = p.binding_for(winner.table)
         spec_filters.extend(b.as_filters())
+        direct_semi_joins.extend(b.semi_joins)
 
-    semi_joins = [_semi_join_for(p, winner.table) for p in winner.semi]
+    semi_joins = direct_semi_joins + [_semi_join_for(p, winner.table) for p in winner.semi]
 
     spec: Dict[str, Any] = {
         "base": winner.table,

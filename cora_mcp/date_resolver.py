@@ -152,6 +152,9 @@ class TimeframeIntent(BaseModel):
     is_future: bool = False
     rest_of: bool = False
     prior_to_date: bool = False   # pytd/pmtd/pqtd — same elapsed span, prior period
+    is_range: bool = False   # a genuine "X to Y" span, vs. a single named period
+                             # (quarter/half-year/FY) that merely carries both
+                             # start_expr and end_expr for its own boundaries
 
 
 class TimeframeNormalizer:
@@ -241,6 +244,18 @@ class TimeframeNormalizer:
                 return first_day_of_month(y.year, m), last_day_of_month(y.year, m)
         return None
 
+    def _clamp_to_today_if_current_month(self, end: date) -> date:
+        """A resolved month-end that lands in the CURRENT, still-in-progress
+        month is padded with days that don't have data yet -- e.g. "Mar 26 to
+        Aug 26" resolving Aug's end to the 31st when today is only Aug 9 makes
+        the trend's last bucket look like a drop. Clamp to today instead, so
+        the bucket is honestly partial. A genuinely future month (year/month
+        greater than today's) is left alone -- that's an intentional forward
+        window, not an in-progress one."""
+        if end.year == self.today.year and end.month == self.today.month and end > self.today:
+            return self.today
+        return end
+
     def _extract_date_substring(self, text: str) -> Optional[str]:
         for pat in self.DATE_SUBSTRING_PATTERNS:
             m = pat.search(text)
@@ -273,6 +288,8 @@ class TimeframeNormalizer:
 
                     if end.day == 1 and re.fullmatch(r"\d{4}-\d{2}-01", end.isoformat()):
                         end = last_day_of_month(end.year, end.month)
+                    if intent.is_range:
+                        end = self._clamp_to_today_if_current_month(end)
 
                     return {"start_date": start.isoformat(), "end_date": end.isoformat()}
 
@@ -552,13 +569,14 @@ class DeterministicExtractor:
             start_expr = m.group(2).strip()
             end_expr = m.group(4).strip()
             if self._looks_like_date_expression(start_expr) and self._looks_like_date_expression(end_expr):
-                return TimeframeIntent(kind="absolute", start_expr=start_expr, end_expr=end_expr)
+                return TimeframeIntent(kind="absolute", start_expr=start_expr, end_expr=end_expr,
+                                       is_range=True)
             return None
 
         # Absolute range WITHOUT keywords (compact tokens).
         DATE_TOKEN = (
             r"(?:"
-            r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[-/]?(?:\d{2}|\d{4})"
+            rf"(?:{TimeframeNormalizer.MONTH_RE})[-/\s]?(?:\d{{2}}|\d{{4}})"
             r"|(?:\d{4}-\d{2}-\d{2})"
             r"|(?:\d{4}-\d{2})"
             r"|(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"
@@ -576,7 +594,8 @@ class DeterministicExtractor:
             start_expr = m.group(1).strip()
             end_expr = m.group(2).strip()
             if self._looks_like_date_expression(start_expr) and self._looks_like_date_expression(end_expr):
-                return TimeframeIntent(kind="absolute", start_expr=start_expr, end_expr=end_expr)
+                return TimeframeIntent(kind="absolute", start_expr=start_expr, end_expr=end_expr,
+                                       is_range=True)
             return None
 
         # REST / REMAINING / BALANCE OF ...
@@ -815,6 +834,27 @@ def resolve_comparison(
             and previous["end_date"] == current["end_date"]:
         log.info("date_resolver: both sides of %r resolve to the same window", phrase)
         return None
+
+    # Fairness guard: "this month vs last month" otherwise compares a partial
+    # to-date window (e.g. 9 days into August) against a FULL prior month
+    # (30/31 days) -- the prior side always looks bigger regardless of the
+    # real trend. When the later side is a to-date window (its end is
+    # literally today), truncate the earlier side to the same elapsed-day
+    # span from ITS own start, the same PMTD/PQTD/PYTD arithmetic
+    # ``prior_to_date`` already uses above, so both sides cover an equal
+    # number of days.
+    t = today or date.today()
+    if current["end_date"] == t.isoformat():
+        cur_start = _parse_iso(current["start_date"])
+        prev_start = _parse_iso(previous["start_date"])
+        prev_end = _parse_iso(previous["end_date"])
+        elapsed_days = (t - cur_start).days
+        truncated_end = prev_start + timedelta(days=elapsed_days)
+        if truncated_end < prev_end:
+            previous = {**previous, "end_date": truncated_end.isoformat()}
+            log.info("date_resolver: %r -- current side is to-date (%d day(s) elapsed); "
+                     "truncated previous side to %s..%s for a fair comparison",
+                     phrase, elapsed_days + 1, previous["start_date"], previous["end_date"])
     log.info("date_resolver: comparison %r -> previous %s..%s vs current %s..%s",
              phrase, previous["start_date"], previous["end_date"],
              current["start_date"], current["end_date"])

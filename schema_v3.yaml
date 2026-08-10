@@ -2702,6 +2702,9 @@ modules:
       - name: hypercare_project_name
         type: varchar
         role: dimension
+      - name: hypercare_project_system_id
+        type: varchar
+        role: identifier
       - name: incident_id
         type: varchar
         role: identifier
@@ -2714,6 +2717,9 @@ modules:
         canonical: vendor
         alias: vendor
         deeper_insights: true
+      - name: support_group_system_id
+        type: varchar
+        role: identifier
       - name: outage_seconds
         type: int8
         role: dimension
@@ -2925,6 +2931,39 @@ modules:
       - name: title_text
         type: varchar
         role: dimension
+    - name: itsm.tbl_group_hierarchy
+      description: Lookup table mapping a support group to its service area and org hierarchy. Used to scope availability/outage measures to IT-owned support groups (service_area != 'NON-IT'), joined via group_system_id.
+      columns:
+      - name: group_system_id
+        type: varchar
+        role: identifier
+      - name: group_name
+        type: varchar
+        role: dimension
+      - name: service_area
+        type: varchar
+        role: dimension
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+      - name: hierarchy_4
+        type: varchar
+        role: dimension
+      - name: hierarchy_5
+        type: varchar
+        role: dimension
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
   - name: release
     tables:
     - name: itsm_release.tbl_pepops_release_mgmt

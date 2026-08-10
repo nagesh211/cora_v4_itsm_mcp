@@ -225,6 +225,28 @@ def test_sql_mode_table_dimension_fails_loud():
         generate_query("availability-percentage", mode="table", dim="region")
 
 
+def test_sql_mode_group_by_falls_back_to_schema_column_beyond_curated_list():
+    # Regression: gen_query.driver_substitute used to reject ANY dim outside a
+    # declared allowed_group_by outright, ignoring the schema fallback entirely
+    # once a curated list existed at all (the fallback only ever ran when NO
+    # allowed_group_by was declared). availability-percentage curates 10 dims
+    # but schema_v3.yaml declares many more real dimension columns on its
+    # primary table (e.g. hierarchy_4) -- those must now be groupable too.
+    out = generate_query("availability-percentage", period="last month",
+                         mode="table", dim="hierarchy_4")
+    assert out["dimension"] == "hierarchy_4"
+    assert "hierarchy_4" in out["results"][0]["sql"]
+
+
+def test_sql_mode_group_by_still_rejects_column_absent_from_schema():
+    # A word that resolves to NO real column anywhere on the primary table (CI
+    # name isn't tracked on availability/outage records at all) must still be
+    # rejected -- the fallback only ADDS real schema columns, never invents one.
+    with pytest.raises(QueryError, match="not a real column"):
+        generate_query("availability-percentage", period="last month",
+                       mode="table", dim="configuration_item_name")
+
+
 # Module-code resolution moved to cora_mcp.module_registry, where it is derived
 # from the configured index rather than a hardcoded map (the codes differ per
 # deployment). Covered by tests/test_module_registry.py against both vocabularies.
@@ -335,6 +357,38 @@ async def test_module_overview_sql_mode_drops_when_filters_applied(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# query_dataset(metric=<SQL-mode KPI>): a pure detail listing (drilldown/select,
+# no aggregation) must anchor the base table + date field without requiring a
+# measure the KPI's raw SQL can't decompose; an aggregate request for the same
+# KPI must still be refused.
+# ---------------------------------------------------------------------------
+async def test_metric_anchor_allows_detail_listing_on_sql_mode_kpi(monkeypatch):
+    from cora_mcp import db
+    from cora_mcp.query_engine import run_dataset_query
+
+    async def fake_db_execute(dialect, connection, sql, params, limit=200):
+        assert "{" not in sql, "date/dim placeholders must be substituted"
+        return {"rows": [{"outage_system_id": "1"}], "columns": ["outage_system_id"],
+                "rowcount": 1}
+
+    monkeypatch.setattr(db, "execute", fake_db_execute)
+    out = await run_dataset_query({
+        "metric": "availability-availability-outage-count",
+        "drilldown": {"detail_columns": ["outage_system_id"]},
+        "period": "last month"})
+    assert "error" not in out, out.get("error")
+    assert out["rows"] == [{"outage_system_id": "1"}]
+
+
+async def test_metric_anchor_still_refuses_aggregate_on_sql_mode_kpi():
+    from cora_mcp.query_engine import run_dataset_query
+    with pytest.raises(QueryError):
+        await run_dataset_query({
+            "metric": "availability-availability-outage-count",
+            "period": "last month"})
+
+
+# ---------------------------------------------------------------------------
 # Schema fallback: a dimension/filter the KPI config omits but the primary
 # table declares in schema_v3.yaml is resolved from the schema (all paths).
 # ---------------------------------------------------------------------------
@@ -380,3 +434,177 @@ def test_filter_unknown_everywhere_still_raises():
     with pytest.raises(QueryError):
         generate_query("sr-accuracy-of-estimate", period="last 3 months",
                        filters={"definitely_not_a_column": "x"})
+
+
+class _FakeLoader:
+    """Stands in for schema_loader.get_loader() -- one primary table with a
+    dimension the KPI config never declares, plus a non-dimension column that
+    must NOT be offered as a group-by."""
+
+    def table_columns(self, fqn):
+        assert fqn == "itsm_availability.tbl_tableau_outagesv4"
+        return {
+            "assignment_group": {"role": "dimension"},
+            "hierarchy_1": {"role": "dimension"},
+            "outage_id": {"role": "identifier"},
+        }
+
+
+def test_available_group_by_terms_merges_schema_dimensions(monkeypatch):
+    # Regression for the "table mode needs a dimension ... available: [...]" error
+    # only ever listing the KPI's curated allowed_group_by, even when schema_v3.yaml
+    # declares more groupable columns on the same primary table.
+    import cora_mcp.opensearch_client as osc
+    monkeypatch.setattr("cora_mcp.schema_loader.get_loader", lambda: _FakeLoader())
+    cfg = {
+        "allowed_group_by": [{"field": "assignment_group"}],
+        "primary_dataset": {"schema": "itsm_availability", "table": "tbl_tableau_outagesv4"},
+    }
+    terms = osc.available_group_by_terms(cfg)
+    # curated dim kept, schema-only dimension appended, identifier column excluded.
+    assert terms == ["assignment_group", "hierarchy_1"]
+
+
+def test_table_mode_missing_dim_error_lists_schema_fallback_dims(monkeypatch):
+    import cora_mcp.query_engine as qe
+    monkeypatch.setattr("cora_mcp.schema_loader.get_loader", lambda: _FakeLoader())
+
+    async def fake_get(name):
+        return {
+            "name": name,
+            "execution_mode": "DSL",
+            "allowed_group_by": [{"field": "assignment_group"}],
+            "primary_dataset": {"schema": "itsm_availability", "table": "tbl_tableau_outagesv4"},
+        }
+
+    monkeypatch.setattr(qe.get_catalog(), "get", fake_get)
+    with pytest.raises(QueryError) as exc_info:
+        generate_query("fake-availability-kpi", mode="table")
+    msg = str(exc_info.value)
+    # both the curated dim AND the schema-discovered one must be advertised, not
+    # just the narrower curated allowed_group_by list.
+    assert "assignment_group" in msg
+    assert "hierarchy_1" in msg
+    assert "outage_id" not in msg
+
+
+def test_schema_drift_hint_matches_undefined_column_in_fallback_list():
+    import cora_mcp.query_engine as qe
+    msg = 'column "hierarchy_1" does not exist'
+    hint = qe._schema_drift_hint(msg, ["assignment_group", "hierarchy_1"])
+    assert hint is not None
+    assert "hierarchy_1" in hint and "schema drift" in hint
+
+
+def test_schema_drift_hint_none_when_column_not_a_fallback():
+    import cora_mcp.query_engine as qe
+    # A genuine undefined-column error unrelated to any schema-fallback name
+    # (e.g. a typo'd curated field) should NOT be blamed on schema drift.
+    msg = 'column "some_other_column" does not exist'
+    assert qe._schema_drift_hint(msg, ["hierarchy_1"]) is None
+
+
+def test_schema_drift_hint_none_for_unrelated_db_errors():
+    import cora_mcp.query_engine as qe
+    # A non-"does not exist" failure (timeout, permission, syntax) is never
+    # reinterpreted as schema drift, even if a fallback column name happens to
+    # appear in the message.
+    msg = 'permission denied for table containing hierarchy_1'
+    assert qe._schema_drift_hint(msg, ["hierarchy_1"]) is None
+
+
+def test_run_query_reports_schema_drift_on_undefined_column(monkeypatch):
+    # End-to-end wiring: generate_query flags a schema-fallback dimension, the
+    # live execution rejects it as undefined, and run_query must translate that
+    # into a "schema drift" diagnostic on the result rather than a bare driver
+    # error string.
+    import cora_mcp.query_engine as qe
+    from cora_mcp import db
+
+    async def fake_generate_query(kpi, **kwargs):
+        return {
+            "kpi": kpi,
+            "mode": "table",
+            "dimension": "hierarchy_1",
+            "schema_fallback_columns": ["hierarchy_1"],
+            "results": [{"label": "current", "window": {"from": "2026-01-01", "to": "2026-01-31"},
+                        "sql": "SELECT a.hierarchy_1 AS grp FROM t a GROUP BY 1",
+                        "params": [], "_exec_params": []}],
+        }
+
+    async def fake_get(name):
+        return {"source": {"dialect": "postgres", "connection": "primary"}}
+
+    async def fake_execute(*a, **kw):
+        raise db.DBError('column "hierarchy_1" does not exist')
+
+    monkeypatch.setattr(qe, "generate_query", fake_generate_query)
+    monkeypatch.setattr(qe.get_catalog(), "get", fake_get)
+    monkeypatch.setattr(db, "execute", fake_execute)
+
+    out = _sync(qe.run_query("fake-availability-kpi", mode="table", dim="hierarchy_1"))
+    res = out["results"][0]
+    assert res["schema_drift"] is True
+    assert "hierarchy_1" in res["error"]
+    assert "schema drift" in res["error"]
+
+
+def test_run_query_leaves_unrelated_db_errors_unchanged(monkeypatch):
+    # No schema_fallback_columns on the result -> the raw driver message passes
+    # through untouched (nothing to blame on schema drift).
+    import cora_mcp.query_engine as qe
+    from cora_mcp import db
+
+    async def fake_generate_query(kpi, **kwargs):
+        return {
+            "kpi": kpi, "mode": "stat",
+            "results": [{"label": "current", "window": {"from": "2026-01-01", "to": "2026-01-31"},
+                        "sql": "SELECT 1", "params": [], "_exec_params": []}],
+        }
+
+    async def fake_get(name):
+        return {"source": {"dialect": "postgres", "connection": "primary"}}
+
+    async def fake_execute(*a, **kw):
+        raise db.DBError("syntax error at or near \"SELECT\"")
+
+    monkeypatch.setattr(qe, "generate_query", fake_generate_query)
+    monkeypatch.setattr(qe.get_catalog(), "get", fake_get)
+    monkeypatch.setattr(db, "execute", fake_execute)
+
+    out = _sync(qe.run_query("fake-kpi", mode="stat"))
+    res = out["results"][0]
+    assert "schema_drift" not in res
+    assert res["error"] == "syntax error at or near \"SELECT\""
+
+
+def test_run_dataset_query_reports_schema_drift_on_undefined_column(monkeypatch):
+    # Same diagnostic, wired through the composer's ad-hoc query path, which
+    # tracks its schema-resolved columns via BuildResult.resolved_columns
+    # instead of query_engine's schema_fallback_columns.
+    import types
+    import cora_mcp.query_engine as qe
+    from cora_mcp import db, sql_builder
+
+    fake_built = types.SimpleNamespace(
+        base_table="itsm_availability.tbl_tableau_outagesv4",
+        joined_tables=[],
+        date_window={"from": "2026-01-01", "to": "2026-01-31"},
+        sql="SELECT a.hierarchy_1 AS grp FROM t a GROUP BY 1",
+        params=[],
+        implicit_grain=None,
+        dropped_dimensions=[],
+        resolved_columns={"hierarchy": {"table": "itsm_availability.tbl_tableau_outagesv4",
+                                        "column": "hierarchy_1", "how": "suffix"}},
+    )
+
+    async def fake_execute(*a, **kw):
+        raise db.DBError('column "hierarchy_1" does not exist')
+
+    monkeypatch.setattr(sql_builder, "build", lambda spec: fake_built)
+    monkeypatch.setattr(db, "execute", fake_execute)
+
+    out = _sync(qe.run_dataset_query({"base": "itsm_availability.tbl_tableau_outagesv4"}))
+    assert out["schema_drift"] is True
+    assert "hierarchy_1" in out["error"]
+    assert "schema drift" in out["error"]

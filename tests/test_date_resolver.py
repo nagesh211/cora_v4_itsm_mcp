@@ -156,3 +156,58 @@ def test_bucket_windows_quarter_and_single_bucket():
     assert bucket_windows("2026-05-03", "2026-05-20", "month") == [
         ("2026-05", ("2026-05-03", "2026-05-20")),
     ]
+
+
+def test_comparison_truncates_prior_side_to_match_to_date_span():
+    # regression: "this month vs last month" used to compare a partial
+    # to-date window (15 days into September) against a FULL prior month (31
+    # days) -- the prior side always looked bigger regardless of the real
+    # trend. The prior side must now cover the same elapsed span.
+    out = r("this month vs last month")
+    cmp = out["comparison"]
+    assert cmp["current"] == {"start_date": "2025-09-01", "end_date": "2025-09-15",
+                              "matched": True, "phrase": "this month"}
+    assert cmp["previous"] == {"start_date": "2025-08-01", "end_date": "2025-08-15",
+                               "matched": True, "phrase": "last month"}
+
+    out = r("this quarter vs last quarter")
+    cmp = out["comparison"]
+    assert cmp["current"]["end_date"] == "2025-09-15"
+    # 77 days elapsed into Q3 (Jul 1 -> Sep 15) mirrored onto Q2 (Apr 1 start)
+    assert cmp["previous"]["end_date"] == "2025-06-16"
+
+
+def test_comparison_leaves_two_complete_periods_untouched():
+    # neither side is a to-date window here, so no truncation applies.
+    out = r("Q1 2025 vs Q2 2025")
+    cmp = out["comparison"]
+    assert cmp["previous"] == {"start_date": "2025-01-01", "end_date": "2025-03-31",
+                               "matched": True, "phrase": "Q1 2025"}
+    assert cmp["current"] == {"start_date": "2025-04-01", "end_date": "2025-06-30",
+                              "matched": True, "phrase": "Q2 2025"}
+
+
+def test_range_ending_in_current_month_clamps_to_today():
+    # regression: a multi-month trend range ("Mar 2025 to Sep 2025") whose end
+    # falls in the CURRENT, still-in-progress month must clamp to today
+    # instead of padding the last bucket with days that have no data yet.
+    for phrase in ("mar 2025 to sep 2025 trend", "mar25 to sep25 trend",
+                   "march 2025 to september 2025 trend"):
+        out = r(phrase)
+        assert out["start_date"] == "2025-03-01", phrase
+        assert out["end_date"] == "2025-09-15", phrase
+
+
+def test_named_single_period_still_returns_full_boundaries():
+    # a standalone named period (not a range) keeps its calendar boundaries
+    # even when "today" falls inside it -- only ranges/trends clamp.
+    assert r("Q3 2025")["end_date"] == "2025-09-30"
+    assert r("sep 2025")["end_date"] == "2025-09-30"
+
+
+def test_range_ending_in_a_future_month_is_left_alone():
+    # a genuinely future target month (entirely ahead of today) is an
+    # intentional forward window, not an in-progress one -- don't clamp it.
+    out = r("mar 2025 to dec 2025 trend")
+    assert out["start_date"] == "2025-03-01"
+    assert out["end_date"] == "2025-12-31"

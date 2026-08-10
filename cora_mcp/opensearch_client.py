@@ -169,6 +169,38 @@ def config_dimensions(cfg: dict) -> List[str]:
     return out
 
 
+def available_group_by_terms(cfg: dict) -> List[str]:
+    """``config_dimensions(cfg)`` plus any 'dimension'-role column on the KPI's
+    primary table that the config itself never declared.
+
+    ``config_dimensions`` is a curated, hand-maintained list (``drilldown.dimensions``
+    / ``allowed_group_by``) that regularly lags what ``schema_v3.yaml`` actually
+    supports — dimension resolution already falls back to the schema for a NAMED
+    ``dim=`` (see ``query_engine.resolve_dim_word`` / ``resolve_dim_via_schema``), but
+    nothing advertising "what can I group by" (the no-dim error, the KPI summary)
+    consulted it, so callers were told about a narrower list than what would actually
+    work. Restricted to primary-table columns (no join) and to ``role == "dimension"``,
+    matching the same restriction ``resolve_dim_via_schema`` applies.
+    """
+    dims = list(config_dimensions(cfg))
+    seen = {d.lower() for d in dims}
+    pd = cfg.get("primary_dataset") or {}
+    schema, table = pd.get("schema"), pd.get("table")
+    if not (schema and table):
+        return dims
+    try:
+        from cora_mcp.schema_loader import get_loader
+        cols = get_loader().table_columns(f"{schema}.{table}")
+    except Exception as exc:                          # never let a lookup break discovery
+        log.debug("available_group_by_terms(%s.%s) failed: %s", schema, table, exc)
+        return dims
+    for name, ci in cols.items():
+        if (ci.get("role") or "dimension") == "dimension" and name.lower() not in seen:
+            dims.append(name)
+            seen.add(name.lower())
+    return dims
+
+
 def build_index_doc(cfg: dict) -> dict:
     """Project a KPI config into an index document: curated searchable fields plus
     the full config verbatim under ``config``. The ``_id`` is the KPI ``name``."""

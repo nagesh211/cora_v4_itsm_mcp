@@ -264,10 +264,16 @@
          "primary": true,
          "conditions": [
            {"field": "outage_type", "op": "=", "values": ["OUTAGE"]},
-           {"field": "business_criticality_value", "op": "=", "values": ["1 - most critical"]}
+           {"field": "business_criticality_value", "op": "=", "values": ["1 - most critical"]},
+           {"field": "hypercare_project_system_id", "op": "is_null", "values": []}
          ],
-         "note": "PRIMARY: the population the `availability-percentage` KPI measures — outage rows on the most-critical services (that KPI's own SQL scopes to outage_type='OUTAGE' AND business_criticality_value='1 - most critical'). Verified: 554 rows / 554 distinct incident_id overall, 58 in July 2026.",
-         "caveat": "scoped like the availability-percentage KPI (real outages on '1 - most critical' services) but NOT an exact reproduction of it: that KPI also excludes hypercare projects (hypercare_project_system_id IS NULL) and NON-IT support groups (support_group_system_id IN (SELECT group_system_id FROM itsm.tbl_group_hierarchy WHERE service_area != 'NON-IT')), and a predicate condition supports neither IS NULL nor a subquery. These incidents are therefore a small superset of the ones that actually moved the percentage."}
+         "semi_joins": [
+           {"table": "itsm.tbl_group_hierarchy", "key_left": "support_group_system_id",
+            "key_right": "group_system_id",
+            "filters": [{"field": "service_area", "op": "!=", "values": ["NON-IT"], "resolved": true}]}
+         ],
+         "note": "PRIMARY: the population the `availability-percentage`/`availability-availability-outage-count` KPIs measure — outage rows on the most-critical services, excluding hypercare projects and NON-IT support groups, reproducing those KPIs' own SQL scoping. Verified against the live DB: 554 rows before the hypercare/NON-IT exclusions, 506 after (all-time) — the exclusions are not a no-op.",
+         "caveat": "still NOT a byte-for-byte reproduction of the KPI SQL: that SQL also requires service_end_date IS NULL OR service_end_date > '2022-01-01' (excludes services decommissioned before 2022), which the predicate schema cannot express as a single condition (it's an OR across two forms on the same column). In practice this only affects long-since-decommissioned services, so it should not move a count for any recent period, but it is not yet verified to be a true no-op for every window."}
       ]
     }
   }

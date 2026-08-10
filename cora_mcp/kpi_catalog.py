@@ -67,8 +67,10 @@ def summary_from_config(cfg: dict) -> dict:
         # "business"/"p&l" (-> sector) or "team" (-> assignment_group) and be
         # resolved deterministically. Pass any of these as a `filters` key.
         "filter_aliases": _filter_alias_map(allowed),
-        # configs advertise their breakdown dimensions identically.
-        "drilldown_dimensions": osc.config_dimensions(cfg),
+        # Curated dims plus any schema 'dimension' column on the primary table the
+        # config itself never declared (query_engine.available_group_by_terms mirrors
+        # the schema fallback dim resolution already honours for a named dim=).
+        "drilldown_dimensions": osc.available_group_by_terms(cfg),
         "sample_questions": nl.get("sample_questions", []),
     }
 

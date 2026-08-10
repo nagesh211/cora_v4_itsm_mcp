@@ -25,7 +25,7 @@ log = get_logger(__name__)
 
 _AGGS = {"count", "count_distinct", "sum", "avg", "min", "max"}
 _SCALAR_OPS = {"=", "!=", "<", ">", "<=", ">="}
-_OPS = _SCALAR_OPS | {"in", "not_in", "like", "not_null"}
+_OPS = _SCALAR_OPS | {"in", "not_in", "like", "not_null", "is_null"}
 _GRAIN = {"day": "day", "week": "week", "month": "month", "quarter": "quarter"}
 _ALIASES = "abcdefghijklmnopqrstuvwxyz"
 _MAX_LIMIT = 5000
@@ -387,6 +387,8 @@ class _Builder:
         is_text_array = is_array and self._is_text_type(type_l)
         if flt.op == "not_null":
             return f"{col} IS NOT NULL"
+        if flt.op == "is_null":
+            return f"{col} IS NULL"
 
         # Resolve the user's VALUE(S) against the column's declared domain
         # (schema `possible_values`) BEFORE they hit the query: 'completed' ->
