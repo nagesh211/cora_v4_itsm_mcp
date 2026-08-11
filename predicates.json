@@ -75,9 +75,11 @@
       "bindings": [
         {"table": "itsm_incident.tbl_all_incidents",
          "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED"]}],
-         "note": "verified domain: CLOSED / OPENED / RESOLVED / CANCELED"},
+         "note": "verified domain: CLOSED / OPENED / RESOLVED / CANCELED",
+         "date_field": "closed_date"},
         {"table": "itsm_incident.tbl_major_incidents",
-         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED"]}]}
+         "conditions": [{"field": "status_name", "op": "=", "values": ["CLOSED"]}],
+         "date_field": "closed_date_time"}
       ]
     },
     "open_incident": {
@@ -99,9 +101,11 @@
       "grain_key": "incident_id",
       "bindings": [
         {"table": "itsm_incident.tbl_all_incidents",
-         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}]},
+         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}],
+         "date_field": "resolved_date"},
         {"table": "itsm_incident.tbl_major_incidents",
-         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}]}
+         "conditions": [{"field": "status_name", "op": "=", "values": ["RESOLVED"]}],
+         "date_field": "resolved_date_time"}
       ]
     },
     "major_problem": {

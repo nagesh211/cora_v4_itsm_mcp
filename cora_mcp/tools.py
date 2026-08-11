@@ -659,6 +659,7 @@ def _register_core(mcp) -> List[str]:
         entity: Optional[str] = None,
         base: Optional[str] = None,
         date_field: Optional[str] = None,
+        metric: Optional[str] = None,
         limit: int = 200,
     ) -> Dict[str, Any]:
         """Answer a question qualified by ONE OR MORE scope predicates — either as a
@@ -705,6 +706,14 @@ def _register_core(mcp) -> List[str]:
           entity: optional entity hint; inferred from the predicates when omitted.
           base: force a specific anchor table (skips selection).
           date_field: force which timestamp the period applies to (opened vs closed).
+          metric: a KPI name (from search_kpis/describe_kpi) whose table AND own
+            population filter this composition should reuse — pass this instead of
+            `base` when the records/detail you want are "the ones behind KPI X"
+            (e.g. a `run_kpi` follow-up asking for details, or a fresh question that
+            already matches an existing KPI's population). Any `predicates`/
+            `filters`/`dimensions` given alongside are ANDed on top of the KPI's own
+            filter, so the count/listing never drifts from what `run_kpi` reported
+            for that same KPI.
 
         Returns the rows plus a `composition` block naming the anchor table, how each
         predicate was satisfied (free / direct / semi_join) and any dropped breakdown —
@@ -713,12 +722,13 @@ def _register_core(mcp) -> List[str]:
         from cora_mcp.composer import ComposeError, compose_and_run
         t0 = _log_call("compose_metric", predicates=predicates, filters=filters,
                        dimensions=dimensions, select=select, period=period,
-                       entity=entity, measure=measure, grain=grain)
+                       entity=entity, measure=measure, grain=grain, metric=metric)
         try:
             out = await compose_and_run(
                 measure=measure, predicates=predicates, filters=filters,
                 dimensions=dimensions, select=select, period=period, grain=grain,
-                entity=entity, base=base, date_field=date_field, limit=limit)
+                entity=entity, base=base, date_field=date_field, metric=metric,
+                limit=limit)
         except (ComposeError, QueryError, BuilderError) as exc:
             log.warning("compose_metric refused: %s", exc)
             return {"error": str(exc)}

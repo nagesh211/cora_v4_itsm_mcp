@@ -7,8 +7,8 @@ an aggregate. This module owns that path:
 
   * :func:`detect_records` — deterministically find record ids in a question and
     map each to its entity + human id column via ``record_prefixes.json``.
-  * :func:`curated_detail_columns` — pick a readable, schema-driven column set for
-    an entity (human identifiers + key dimensions + timestamps), capped.
+  * :func:`curated_detail_columns` — every schema-declared column for an entity
+    (human identifiers + all dimensions + all timestamps), uncapped.
   * :func:`registry` — the prefix / entity-alias registry (extend the JSON, no
     code change) so new modules/record types self-register.
 
@@ -36,9 +36,6 @@ DEFAULT_PREFIXES_PATH = os.path.join(_ROOT, "record_prefixes.json")
 # A record id: 2-6 letters then >=4 digits (INC0353896, CHG0012345, RITM0009999).
 _RECORD_RE = re.compile(r"\b([A-Za-z]{2,6})(\d{4,})\b")
 
-# How many columns of each role to surface in a detail row (readable, not noisy).
-_MAX_DIMS = 12
-_MAX_TS = 6
 
 
 def _plural(word: str) -> str:
@@ -279,9 +276,9 @@ def detect_records(text: str) -> List[Dict[str, str]]:
 
 def curated_detail_columns(slug: str, id_column: Optional[str] = None,
                            table: Optional[str] = None) -> List[str]:
-    """A readable, schema-driven detail column set for an entity: the human id,
-    key dimensions and timestamps (capped). Deterministic and role-driven, so it
-    tracks the schema automatically as columns are added.
+    """EVERY schema-declared detail column for an entity: the human id, then all
+    other identifiers, dimensions and timestamps. A record-detail view is expected
+    to be the full row, not a curated preview, so nothing here is capped.
 
     ``table`` restricts the result to columns that actually exist in that table
     (an entity can span several tables, but a detail query hits only one), so the
@@ -305,18 +302,8 @@ def curated_detail_columns(slug: str, id_column: Optional[str] = None,
     for c in detail.get("identifiers") or []:
         if not c.endswith("_system_id"):
             _add(c)
-    n_dims = 0
     for c in detail.get("dimensions") or []:
-        if n_dims >= _MAX_DIMS:
-            break
-        if _in_table(c) and c not in cols:
-            cols.append(c)
-            n_dims += 1
-    n_ts = 0
+        _add(c)
     for c in detail.get("timestamps") or []:
-        if n_ts >= _MAX_TS:
-            break
-        if _in_table(c) and c not in cols:
-            cols.append(c)
-            n_ts += 1
+        _add(c)
     return cols

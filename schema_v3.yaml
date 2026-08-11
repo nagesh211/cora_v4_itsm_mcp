@@ -103,6 +103,8 @@ modules:
       - name: created_date
         type: date
         role: timestamp
+        canonical: reported date, opened date
+        alias: reported date, opened date
       - name: description_text
         type: varchar
         role: dimension
@@ -1040,6 +1042,8 @@ modules:
       - name: open_date_time
         type: timestamp
         role: timestamp
+        canonical: reported date, opened date
+        alias: reported date, opened date
       - name: closed_date_time
         type: timestamp
         role: timestamp

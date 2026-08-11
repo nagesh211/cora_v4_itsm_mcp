@@ -91,6 +91,15 @@ class QuerySpec(BaseModel):
     semi_joins: List[SemiJoin] = Field(default_factory=list)
     period: Optional[str] = None         # NL phrase -> resolve_dates
     date_field: Optional[str] = None
+    # Trusted raw WHERE fragment(s) (from a KPI's `dsl.where_raw`/`static_filters`,
+    # never user free text) ANDed into the query as-is. May contain `{from_date}`/
+    # `{to_date}` placeholders, substituted from the resolved period window the same
+    # way the KPI engine (gen_query.substitute_dates) fills them.
+    extra_where: List[str] = Field(default_factory=list)
+    # Set when `extra_where` already encodes the population's own time window (a
+    # KPI's `where_raw` typically does) — skips the generic period BETWEEN clause
+    # so the two don't both apply and contradict each other.
+    suppress_auto_period_filter: bool = False
     join_with: List[str] = Field(default_factory=list)
     join_type: str = "inner"             # inner (restrict to related) | left (enrich)
     grain: Optional[str] = None
@@ -292,6 +301,23 @@ class _Builder:
         self.params.append(win["end_date"] + " 23:59:59")
         return f"cast({col} as timestamp) BETWEEN {P} AND {P}"
 
+    def _substitute_extra_where(self, raw: str) -> str:
+        """Fill `{from_date}`/`{to_date}` in a trusted raw WHERE fragment from the
+        resolved period window, the same boundary convention `_between` uses
+        (start of day / end of day) so a KPI's `where_raw` behaves identically
+        whether it ran via the KPI engine or was reused here."""
+        win = self._period_win
+        if "{" in raw and not win:
+            raise BuilderError(
+                "a metric's population filter needs `{from_date}`/`{to_date}` "
+                "substituted from a resolved period, but no `period` was given")
+        if win:
+            raw = raw.replace("{from_date}", win["start_date"] + " 00:00:00")
+            raw = raw.replace("{to_date}", win["end_date"] + " 23:59:59")
+        if "{" in raw:
+            raise BuilderError(f"unresolved placeholder(s) in extra_where: {raw!r}")
+        return raw
+
     def _where(self) -> List[str]:
         where: List[str] = []
         for flt in self.spec.filters:
@@ -305,19 +331,22 @@ class _Builder:
                     f"time column; pass date_field explicitly")
             win = self._period_win or resolve_dates(self.spec.period)
             self._date_window = win
-            col = self._col_ref(date_field)
-            cmp_windows = win.get("comparison")
-            if cmp_windows:
-                # A comparison phrase ("last month vs current month") covers TWO
-                # windows. Both are matched with an OR rather than one span across
-                # them, so disjoint sides ("Q1 2026 vs Q3 2026") never drag in the
-                # periods between. `_select_and_group` adds the period bucket so each
-                # side lands on its own row.
-                sides = " OR ".join(self._between(col, cmp_windows[s])
-                                    for s in ("previous", "current"))
-                where.append(f"({sides})")
-            else:
-                where.append(self._between(col, win))
+            if not self.spec.suppress_auto_period_filter:
+                col = self._col_ref(date_field)
+                cmp_windows = win.get("comparison")
+                if cmp_windows:
+                    # A comparison phrase ("last month vs current month") covers TWO
+                    # windows. Both are matched with an OR rather than one span across
+                    # them, so disjoint sides ("Q1 2026 vs Q3 2026") never drag in the
+                    # periods between. `_select_and_group` adds the period bucket so each
+                    # side lands on its own row.
+                    sides = " OR ".join(self._between(col, cmp_windows[s])
+                                        for s in ("previous", "current"))
+                    where.append(f"({sides})")
+                else:
+                    where.append(self._between(col, win))
+        for raw in self.spec.extra_where:
+            where.append("(%s)" % self._substitute_extra_where(raw))
         # drill-down entity pin
         if self.spec.drilldown and self.spec.drilldown.entity_filter:
             where.append(self._condition(self.spec.drilldown.entity_filter))

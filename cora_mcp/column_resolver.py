@@ -62,6 +62,14 @@ _SHAPE_WORDS: Dict[str, Set[str]] = {
 _INFLECTIONS = ("d", "ed", "s", "es", "ing", "n")
 _MIN_STEM = 4          # below this, a shared prefix is coincidence, not a stem
 
+# The trailing word a representation suffix (`_name` / `_description`) becomes once
+# split on separators. Step 4 below only widens a bare word ("category") into these
+# forms; it never narrows the other way. A caller that already says "category_name"
+# for a column actually named `category_description` (same concept, different
+# representation) fell through every step and was refused. Stripping this trailing
+# word from EITHER side before the near-miss comparison fixes both directions at once.
+_REPR_WORDS: Set[str] = {"name", "description"}
+
 
 def normalize(term: str) -> str:
     return _SEP.sub(" ", (term or "").strip().lower())
@@ -116,13 +124,26 @@ def _same_core(a: List[str], b: List[str]) -> bool:
     return True
 
 
+def _core_variants(core: List[str]) -> Tuple[List[str], ...]:
+    """``core``, plus (when its last word is a representation suffix like "name" or
+    "description") the same list with that trailing word dropped. Two representation
+    forms of the same concept — "category_description" vs a caller's "category_name"
+    — should compare equal on the bare subject, not on which suffix each happens to
+    use, so both the with- and without-suffix reading are offered to the caller."""
+    if len(core) > 1 and core[-1] in _REPR_WORDS:
+        return (core, core[:-1])
+    return (core,)
+
+
 def _near_miss(cols: dict, word: str, eligible) -> Optional[str]:
-    """The one column whose name (or declared vocabulary) is an inflection/date-shape
-    variant of ``word``. ``None`` when nothing is near, or when two columns are equally
-    near — an ambiguous clock must be asked about, not guessed at."""
+    """The one column whose name (or declared vocabulary) is an inflection/date-shape/
+    representation-suffix variant of ``word``. ``None`` when nothing is near, or when
+    two columns are equally near — an ambiguous clock must be asked about, not
+    guessed at."""
     w_core, w_shape = _split_shape(word)
     if not w_core:
         return None                      # "date time" alone names no subject
+    w_variants = _core_variants(w_core)
     ranked: List[Tuple[int, str]] = []
     for name, ci in cols.items():
         if not eligible(name, ci):
@@ -132,7 +153,12 @@ def _near_miss(cols: dict, word: str, eligible) -> Optional[str]:
             c_core, c_shape = _split_shape(term)
             # A date-shaped word must match a date-shaped column: `closed` on its own
             # is not evidence enough to pick a timestamp.
-            if bool(w_shape) != bool(c_shape) or not _same_core(w_core, c_core):
+            if bool(w_shape) != bool(c_shape):
+                continue
+            matched = any(_same_core(w_variant, c_variant)
+                          for w_variant in w_variants
+                          for c_variant in _core_variants(c_core))
+            if not matched:
                 continue
             dist = len(w_shape ^ c_shape)
             best = dist if best is None else min(best, dist)

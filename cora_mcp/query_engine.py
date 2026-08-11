@@ -1204,6 +1204,38 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
         if not spec.date_field:
             spec.date_field = (cfg.get("time") or {}).get("column")
 
+        # Reuse the KPI's own population filter. `dsl.where_raw`/`static_filters`
+        # define EXACTLY which rows count for this metric -- without this a detail
+        # follow-up to a `run_kpi` answer ("get me those details") re-derived
+        # filters from predicates.json (a separately-maintained, coarser
+        # approximation) instead of reusing them, so a KPI-backed "14 closed major
+        # incidents" turned into a 0-row ad-hoc query. Skipped only when the caller
+        # already supplied their own `extra_where` (an explicit override).
+        if not spec.extra_where:
+            where_raw = dsl.get("where_raw")
+            if where_raw:
+                spec.extra_where = [where_raw]
+                spec.suppress_auto_period_filter = True
+            _op_aliases = {"eq": "=", "ne": "!=", "neq": "!=", "contains": "like"}
+            existing_fields = {f.field for f in spec.filters}
+            for sf in dsl.get("static_filters") or []:
+                if sf.get("operator") == "raw":
+                    if sf.get("expr"):
+                        spec.extra_where.append(sf["expr"])
+                    continue
+                field = sf.get("field")
+                if not field or field in existing_fields:
+                    continue
+                op = _op_aliases.get(sf.get("operator"), sf.get("operator") or "=")
+                if op not in sql_builder._OPS:
+                    log.warning("metric %s static_filter with unsupported operator "
+                               "%r on %s; skipped", spec.metric, sf.get("operator"), field)
+                    continue
+                value = sf.get("value")
+                values = list(value) if isinstance(value, (list, tuple)) else [value]
+                spec.filters.append(sql_builder.Filter(field=field, op=op,
+                                                        values=values, resolved=True))
+
     built = sql_builder.build(spec)
     result: Dict[str, Any] = {
         "base_table": built.base_table,

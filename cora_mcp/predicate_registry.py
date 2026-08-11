@@ -81,6 +81,11 @@ class Binding:
     whichever binding actually ran, so the answer says so instead of presenting a
     superset/subset as exact.
 
+    ``date_field`` is which timestamp column the period should apply to WHEN this
+    predicate is what scoped the query — e.g. "closed" implies the closed clock, not
+    the table's generic default (which is usually the created/opened clock). Only used
+    when the caller did not pass an explicit ``date_field`` to `compose_metric`.
+
     ``semi_joins`` is a list of EXISTS specs (same shape as
     :class:`cora_mcp.sql_builder.SemiJoin`: ``table``, ``key_left``, ``key_right``,
     ``filters``, ``negate``) that belong to THIS binding specifically — for a scoping
@@ -93,17 +98,20 @@ class Binding:
     just one more AND-ed condition it carries.
     """
 
-    __slots__ = ("table", "conditions", "note", "primary", "caveat", "semi_joins")
+    __slots__ = ("table", "conditions", "note", "primary", "caveat", "semi_joins",
+                 "date_field")
 
     def __init__(self, table: str, conditions: List[dict], note: Optional[str] = None,
                  primary: bool = False, caveat: Optional[str] = None,
-                 semi_joins: Optional[List[dict]] = None):
+                 semi_joins: Optional[List[dict]] = None,
+                 date_field: Optional[str] = None):
         self.table = table
         self.conditions = conditions or []
         self.note = note
         self.primary = bool(primary)
         self.caveat = caveat
         self.semi_joins = semi_joins or []
+        self.date_field = date_field
 
     @property
     def is_free(self) -> bool:
@@ -141,7 +149,8 @@ class Predicate:
             self._bindings[tbl] = Binding(tbl, b.get("conditions") or [], b.get("note"),
                                           primary=b.get("primary", False),
                                           caveat=b.get("caveat"),
-                                          semi_joins=b.get("semi_joins"))
+                                          semi_joins=b.get("semi_joins"),
+                                          date_field=b.get("date_field"))
 
     def binding_for(self, table: str) -> Optional[Binding]:
         """The binding for ``table``, or None if this predicate cannot bind there."""

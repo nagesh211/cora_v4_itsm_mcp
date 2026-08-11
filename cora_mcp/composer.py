@@ -146,35 +146,45 @@ def _resolve_predicates(terms: List[str]) -> Tuple[List[Predicate], List[str]]:
 
 
 _DETAIL_ROLES = ("identifier", "dimension", "timestamp")
-_DEFAULT_DETAIL_MAX = 12
 
 
 def default_detail_columns(table: str, grain_key: Optional[str] = None) -> List[str]:
-    """A sensible column set for "show me the records" when the caller names none.
+    """EVERY column ``table`` declares in the schema, for "show me the records"
+    when the caller names none.
 
     Exists because a model asked to invent detail columns invents *plausible* ones — a
     real request asked for ``incident_number``, ``short_description``, ``priority``,
     ``opened_by`` and ``incident_state``, none of which exist on the table (the real
     names are ``incident_id``, ``description_text``, ``priority_code``, ``full_name``,
-    ``status_name``). Deriving the list from schema roles removes the guesswork.
+    ``status_name``). Deriving the list from the schema removes the guesswork.
+
+    Ordered identifiers-first, then business dimensions, then timestamps, then
+    anything else the table declares — but nothing is left out or capped: a record
+    detail view is expected to be the FULL row, not a curated preview. The only
+    columns skipped are opaque ETL surrogate keys (``dw_*`` / ``*_system_id``),
+    which carry no business meaning.
     """
     cols = get_loader().table_columns(table)
+
+    def _noise(name: str) -> bool:
+        return "system_id" in name or name.startswith("dw_")
+
     picked: List[str] = []
     if grain_key and grain_key in cols:
         picked.append(grain_key)
-    # identifiers first, then business dimensions, then the timestamps
     for role in _DETAIL_ROLES:
         for name, ci in cols.items():
-            if len(picked) >= _DEFAULT_DETAIL_MAX:
-                break
-            if name in picked:
+            if name in picked or _noise(name):
                 continue
             if (ci.get("role") or "dimension") != role:
                 continue
-            if "system_id" in name or name.startswith("dw_"):
-                continue           # internal surrogate keys are noise in a listing
             picked.append(name)
-    return picked[:_DEFAULT_DETAIL_MAX]
+    # Any remaining column (a role outside the three above) still belongs to the
+    # row — the point of a detail listing is every column, not a curated subset.
+    for name in cols:
+        if name not in picked and not _noise(name):
+            picked.append(name)
+    return picked
 
 
 def _score_candidate(table: str, preds: List[Predicate], filters: Dict[str, Any],
@@ -205,15 +215,33 @@ def _score_candidate(table: str, preds: List[Predicate], filters: Dict[str, Any]
         # `closed_date` — the same clock under a different name — instead of being
         # refused and asked to read the schema back to us.
         if date_field:
+            # Explicit is a requirement, not a hint: if the named clock resolves to
+            # nothing on this table, this candidate has no date field at all — it must
+            # NOT fall back to the generic default below, or "closed last month" could
+            # silently answer on the created/opened clock instead of refusing.
             col, how = resolve_column_detail(table, date_field, roles=("timestamp",))
             cand.date_field = col or (date_field if date_field in cols else None)
             if col and how == "near_miss":
                 cand.approx[date_field] = col
         else:
-            cand.date_field = loader.table_time_field(table)
-            if not cand.date_field or cand.date_field not in cols:
-                cand.date_field = next(
-                    (n for n, ci in cols.items() if ci.get("role") == "timestamp"), None)
+            # A bound predicate (e.g. "closed") names which clock the period should
+            # apply to when the caller didn't say so explicitly. Only trusted when
+            # unambiguous — two predicates pulling toward different clocks ("closed"
+            # AND "resolved") fall through to the table's generic default rather than
+            # guessing between them.
+            pred_hints = {b.date_field for b in
+                          (p.binding_for(table) for p in preds) if b and b.date_field}
+            hint = next(iter(pred_hints)) if len(pred_hints) == 1 else None
+            if hint:
+                col, how = resolve_column_detail(table, hint, roles=("timestamp",))
+                cand.date_field = col or (hint if hint in cols else None)
+                if col and how == "near_miss":
+                    cand.approx[hint] = col
+            if not cand.date_field:
+                cand.date_field = loader.table_time_field(table)
+                if not cand.date_field or cand.date_field not in cols:
+                    cand.date_field = next(
+                        (n for n, ci in cols.items() if ci.get("role") == "timestamp"), None)
         if not cand.date_field:
             cand.no_date = True
             cand.measure_ok = False        # cannot honour the period here
@@ -286,14 +314,27 @@ def _lift_date_filters(filters: Dict[str, Any], tables: List[str],
     returns zero rows with total confidence. Lifting it is the only reading that
     answers the question that was asked, so it is done here rather than refused.
 
-    Only scalar strings are lifted: a *list* of dates is a genuine ``IN`` over exact
-    days and must stay a filter.
+    Only scalar strings are lifted: a *list* of dates is normally a genuine ``IN``
+    over exact days and must stay a filter. The one exception is a list under a
+    word that names the SAME time column already driving ``period`` — that is not
+    an "exact days" request, it is the window's own start/end dates handed back a
+    second time (a caller that fills both `period` and `filters` for one window).
+    Applying both would AND an impossible pair (exact instants + a real range), so
+    that case is dropped as a duplicate rather than run as a literal ``IN``.
     """
     kept: Dict[str, Any] = {}
     notes: List[str] = []
     for word, value in (filters or {}).items():
-        col = _time_column_among(word, tables) if isinstance(value, str) else None
+        is_list = isinstance(value, (list, tuple))
+        col = _time_column_among(word, tables) if isinstance(value, str) or is_list else None
         is_period_word = normalize(word) in _PERIOD_WORDS
+
+        if is_list and col is not None and period is not None:
+            notes.append(
+                "%r=%r names the same time window already given as the period %r; "
+                "it was dropped as a duplicate rather than applied as a literal IN "
+                "over those exact days." % (word, value, period))
+            continue
 
         if col is None and not (is_period_word and isinstance(value, str)):
             kept[word] = value
@@ -583,12 +624,40 @@ def plan(
 
 
 async def compose_and_run(connection: str = "vtx5", dialect: str = "postgres",
+                          metric: Optional[str] = None,
                           **kwargs) -> Dict[str, Any]:
-    """:func:`plan` then execute through the normal validated path."""
+    """:func:`plan` then execute through the normal validated path.
+
+    ``metric``: anchor this composition on a KPI's own table/date-field/population
+    filter instead of scoring candidates from scratch. This is how a "show me the
+    details behind X" follow-up to a `run_kpi` answer reuses the EXACT SAME governed
+    population (the KPI's ``dsl.where_raw``/``static_filters``) rather than
+    re-deriving filters from ``predicates.json``, which is a separately-maintained,
+    coarser approximation (see the divergence that made a KPI-backed "14 closed
+    major incidents" turn into a 0-row ad-hoc query). Any `predicates`/`filters`/
+    `dimensions` passed alongside `metric` are ANDed on top of the KPI's own
+    population, still resolved and scored against that one anchor table.
+    """
     from cora_mcp.query_engine import run_dataset_query
 
+    if metric and not kwargs.get("base"):
+        from cora_mcp.kpi_catalog import get_catalog
+        cfg = await get_catalog().get(metric)
+        if not cfg:
+            raise ComposeError(f"unknown metric {metric!r}")
+        pd = cfg.get("primary_dataset") or {}
+        base_fqn = f"{pd.get('schema')}.{pd.get('table')}"
+        if not base_fqn or base_fqn == ".":
+            raise ComposeError(f"metric {metric!r} has no primary_dataset configured")
+        kwargs["base"] = base_fqn
+        if not kwargs.get("date_field"):
+            kwargs["date_field"] = (cfg.get("time") or {}).get("column")
+
     planned = plan(**kwargs)
-    out = await run_dataset_query(planned["spec"],
+    spec = planned["spec"]
+    if metric:
+        spec["metric"] = metric
+    out = await run_dataset_query(spec,
                                   connection=connection, dialect=dialect,
                                   limit=kwargs.get("limit", 200))
     out["composition"] = {k: planned[k] for k in

@@ -54,7 +54,7 @@ from autogen_agentchat.agents import AssistantAgent  # noqa: E402
 from autogen_agentchat.messages import TextMessage  # noqa: E402
 from autogen_core import CancellationToken  # noqa: E402
 from autogen_core.models import UserMessage  # noqa: E402
-from autogen_ext.models.openai import OpenAIChatCompletionClient  # noqa: E402
+from autogen_ext.models.openai import AzureOpenAIChatCompletionClient  # noqa: E402
 from autogen_ext.tools.mcp import (  # noqa: E402
     StreamableHttpServerParams,
     mcp_server_tools,
@@ -101,8 +101,11 @@ def build_mcp_agent_task(rephrased_question: str, intent_json: dict, flow_path: 
 
 
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-optx-660cfb55f6436276e148a5727cdc67865115917581c2f68d")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://fluxlm.everestdx.com/llm-gw/api/v1/")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://edxi-gen-ai923677433317.cognitiveservices.azure.com")
+
+
+# https://edxi-gen-ai923677433317.cognitiveservices.azure.com/openai/deployments/gpt-4.1/chat/completions?api-version=2025-01-01-preview
 
 _ANALYST_SYSTEM = (
     "You are the  ITSM analyst. Use the CORA MCP tools; NEVER invent SQL "
@@ -165,23 +168,45 @@ _ANALYST_SYSTEM = (
     "the SAME field go in a list (region india+uk -> {'region':['india','uk']}). "
     "If a KPI/tool reports dropped_filters or applied fewer than you sent, tell the "
     "user which constraint was not applied.\n"
-    "2b. QUALIFIED COUNT (scope predicates) — call compose_metric. Some phrases look "
-    "like metric names but are really WHERE clauses: 'major', 'sla breached', "
-    "'emergency', 'high risk', 'failed/unsuccessful', 'major release', 'closed "
-    "incomplete', 'major problem', 'outage', 'impacted availability'. They restrict "
-    "WHICH records count. Call list_predicates with NO `entity` argument to see them "
-    "all: passing entity='incident' because the question says 'incidents' HIDES the "
-    "qualifiers that belong to another entity ('outage' and 'availability impacting' "
-    "are entity 'availability', and they return incident ids too), and what follows is "
-    "picking a same-entity predicate that answers a different question.\n"
-    "   If the question combines a count/measure with one or more such qualifiers "
-    "('how many major incidents that breached SLA', 'emergency changes that failed', "
-    "'major releases delivered with issues'), do NOT use search_kpis/run_kpi — a KPI "
-    "cannot apply a qualifier it does not expose, and search_kpis will match a "
-    "similarly-named KPI and answer a DIFFERENT question (e.g. returning an SLA "
-    "percentage when asked for a breach count). Call compose_metric with "
-    "predicates=[...] plus filters/dimensions/period. It picks the right table itself "
-    "and reports how each predicate was applied in `composition` — relay those notes.\n"
+    "2b. QUALIFIED COUNT (scope predicates) — call compose_metric, but ONLY after "
+    "search_kpis (step 1) has been tried and does not already cover the question. "
+    "Some phrases look like metric names but are really WHERE clauses: 'major', 'sla "
+    "breached', 'emergency', 'high risk', 'failed/unsuccessful', 'major release', "
+    "'closed incomplete', 'major problem', 'outage', 'impacted availability'. They "
+    "restrict WHICH records count — but a SINGLE such qualifier is very often ALSO "
+    "the subject of an existing governed KPI (e.g. 'closed major incident count' is "
+    "itself a named KPI, not a bare predicate bolted onto a different metric). Do NOT "
+    "let seeing one of these words skip step 1 — always call search_kpis with the "
+    "question first, EVEN when the question is asking for DETAIL ROWS rather than a "
+    "number ('show detail columns for closed major incidents…' is still, first, a "
+    "search_kpis call) — and if it returns a KPI whose title/description already "
+    "matches the qualifier + measure the user asked for, do NOT reconstruct filters "
+    "yourself from list_predicates/compose_metric's own predicates. Instead:\n"
+    "   - the user wants a NUMBER: run_kpi on that KPI.\n"
+    "   - the user wants ROWS/DETAILS: compose_metric(metric=<kpi name>, "
+    "select=[...]). Passing `metric` anchors compose_metric on that KPI's OWN table "
+    "and reuses its OWN population filter (the exact same WHERE the KPI's number was "
+    "computed with) instead of re-deriving filters from predicates.json, which is a "
+    "separate, coarser approximation that can silently disagree with the KPI (e.g. "
+    "missing a 'service_area != NON-IT' or category exclusion the KPI applies) and "
+    "come back with 0 rows for a population the KPI just reported 14 of. Any "
+    "`predicates`/`filters`/`dimensions` you also pass are ANDed on top of the KPI's "
+    "filter, not a replacement for it.\n"
+    "   Reserve compose_metric WITHOUT `metric` for when search_kpis does NOT have a "
+    "matching KPI, or the question combines a count/measure with one or more "
+    "qualifiers that no single KPI exposes together ('how many major incidents that "
+    "breached SLA', 'emergency changes that failed', 'major releases delivered with "
+    "issues') — a KPI cannot apply a qualifier it does not expose, and search_kpis "
+    "will match a similarly-named KPI and answer a DIFFERENT question (e.g. returning "
+    "an SLA percentage when asked for a breach count). In that case call "
+    "list_predicates with NO `entity` argument to see them all: passing "
+    "entity='incident' because the question says 'incidents' HIDES the qualifiers "
+    "that belong to another entity ('outage' and 'availability impacting' are entity "
+    "'availability', and they return incident ids too), and what follows is picking a "
+    "same-entity predicate that answers a different question. Then call "
+    "compose_metric with predicates=[...] plus filters/dimensions/period. It picks "
+    "the right table itself and reports how each predicate was applied in "
+    "`composition` — relay those notes.\n"
     "   ONE measure + N qualifiers is ONE compose_metric call (they are ANDed). If the "
     "user genuinely asks for SEVERAL measures ('count AND average duration'), that is "
     "several calls, reported side by side — never add or blend them into one number.\n"
@@ -265,7 +290,16 @@ _ANALYST_SYSTEM = (
     "one query_dataset with select=[detail columns] and filters=[{field:<id col>, "
     "op:'in', values:[the ids]}] returns them together. If it names exactly ONE id, "
     "use get_record. Re-apply the stated period/filters even when the ids are "
-    "known — dropping them is what turns a valid follow-up into 'no data'.\n\n"
+    "known — dropping them is what turns a valid follow-up into 'no data'.\n"
+    "   IF THE PRIOR TURN RAN run_kpi for a named KPI (it will be named in the "
+    "question or in a prior <intent_hints>/metric reference) and this follow-up asks "
+    "for the records/details behind that number: do NOT switch to compose_metric "
+    "with freshly-invented predicates/filters, and do NOT use query_dataset without "
+    "`metric`. Call compose_metric(metric=<same kpi name>, select=[...]) (add "
+    "predicates/filters only for anything EXTRA the user now asks for) so the detail "
+    "rows come from the EXACT SAME population the KPI's number was computed over. "
+    "Only fall back to plain compose_metric/predicates when no KPI covered the prior "
+    "answer.\n\n"
     "If a tool returns an `error`, report it and show the SQL. Answer concisely with "
     "the key number(s).\n"
     "NEVER answer just 'no data available'. If a query returned 0 rows, say WHICH "
@@ -342,6 +376,13 @@ _REPHRASE_SYSTEM = (
     "detail columns for incidents INC0364440, INC0364512 (major incidents, "
     "priority P1, last month)'). Never drop the previous filters/period — without "
     "them the query matches nothing and the answer becomes 'no data'.\n"
+    "- If <last_result>.data has an entry with a `metric` (the previous turn ran "
+    "run_kpi for a named KPI) and this message asks for details/records/rows behind "
+    "that answer, NAME THE KPI EXPLICITLY in the rewritten question (e.g. 'Show the "
+    "detail rows behind the KPI availability-closed-major-incident-count for August "
+    "1-11, 2026') rather than only describing the population in prose — the analyst "
+    "reuses that exact KPI's own filters when the KPI is named, and can silently "
+    "reconstruct a DIFFERENT (and possibly empty) population when it is not.\n"
     "- Keep any relative time phrase VERBATIM (e.g. 'last quarter', 'this year', "
     "'last quarter vs current quarter').\n"
     "- If the message is already self-contained, return it essentially unchanged.\n"
@@ -356,10 +397,15 @@ _tools_cache = {"tools": None}
 _tools_lock = asyncio.Lock()
 
 
-def _model_client() -> OpenAIChatCompletionClient:
-    return OpenAIChatCompletionClient(
-        model=os.getenv("CORA_LLM_MODEL", "gpt-4.1-mini"),
-        api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+def _model_client() -> AzureOpenAIChatCompletionClient:
+  return AzureOpenAIChatCompletionClient(
+      azure_endpoint=OPENAI_BASE_URL,
+      azure_deployment="gpt-5-mini",
+      model="gpt-5-mini",
+      api_version="2025-01-01-preview",
+      api_key=OPENAI_API_KEY,
+  )
+
 
 
 async def _get_tools():
