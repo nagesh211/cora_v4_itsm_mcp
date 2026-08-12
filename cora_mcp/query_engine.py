@@ -48,7 +48,7 @@ if _ROOT not in sys.path:
 
 import gen_query as gq  # noqa: E402  (path set up above)
 
-_MODES = ("stat", "series", "table")
+_MODES = ("stat", "series", "table", "records")
 
 
 class QueryError(ValueError):
@@ -113,27 +113,9 @@ def resolve_filter_key(config: dict, term: str) -> str:
     avail = _available_filters_desc(config)
     # Telemetry: a rejected filter is the signal that a question needed a qualifier the
     # metric layer cannot express. Logged in one structured line so the frequency of
-    # each missing term can be counted from the logs, rather than guessing at whether
-    # the composer/predicate layer is earning its keep (MULTI_METRIC_ANALYSIS.md §8).
-    predicate_hint = None
-    try:
-        from cora_mcp.predicate_registry import get_registry as _preds
-        hit = _preds().resolve(term)
-        predicate_hint = hit.name if hit else None
-    except Exception:                      # never let telemetry break resolution
-        pass
-    log.info("FILTER_REJECTED kpi=%s term=%r canonical=%r predicate_match=%r "
-             "primary_table=%s available=%s",
-             config.get("name"), term, canonical, predicate_hint,
-             _kpi_primary_fqn(config), sorted(avail))
-    if predicate_hint:
-        raise QueryError(
-            f"{term!r} is a scope predicate ({predicate_hint!r}), not a filter on KPI "
-            f"{config.get('name')!r}. It restricts WHICH records count rather than "
-            f"naming a dimension, and on this metric's table it may not be expressible "
-            f"at all. Use compose_metric(predicates=[{predicate_hint!r}], ...) to have "
-            f"the anchor table chosen accordingly. "
-            f"This KPI's own filters: {avail}")
+    # each missing term can be counted from the logs.
+    log.info("FILTER_REJECTED kpi=%s term=%r canonical=%r primary_table=%s available=%s",
+             config.get("name"), term, canonical, _kpi_primary_fqn(config), sorted(avail))
     if canonical is not None:
         raise QueryError(
             f"filter {term!r} (means {canonical!r}) is not available on KPI "
@@ -279,6 +261,32 @@ def schema_columns_for(config: dict) -> Dict[str, dict]:
     except Exception as exc:                          # never let a lookup break query gen
         log.debug("schema_columns_for(%s) failed: %s", fqn, exc)
         return {}
+
+
+def _kpi_detail_columns(config: dict) -> List[str]:
+    """The curated column set for a KPI's ``mode='records'`` raw-row listing.
+
+    Prefers an authored ``detail_columns`` list on the KPI config itself (set this
+    when the default below isn't the right shape for a given KPI); otherwise falls
+    back to the entity's human id column + this KPI's own drilldown dimensions,
+    via the SAME schema-driven column picker :func:`get_record` uses
+    (:func:`cora_mcp.record_lookup.curated_detail_columns`) — so a KPI's record
+    listing and a plain ``get_record`` on one of its rows surface a consistent
+    column set."""
+    declared = config.get("detail_columns")
+    if declared:
+        return list(declared)
+    fqn = _kpi_primary_fqn(config)
+    dims = list(config_dimensions(config))
+    if not fqn:
+        return dims[:15]
+    from cora_mcp import record_lookup as rl
+    slug = _primary_table_to_slug().get(fqn)
+    if not slug:
+        return dims[:15]
+    id_col = rl._entity_id_column(slug)
+    cols = rl.curated_detail_columns(slug, id_col, table=fqn)
+    return cols or dims[:15]
 
 
 def resolve_dim_via_schema(
@@ -500,13 +508,19 @@ async def generate_query(
     grain: Optional[str] = None,
     filters: Union[Dict[str, Any], List[str], None] = None,
     comparison: bool = False,
+    limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Generate SQL for a KPI config. See module docstring for semantics.
 
     Async because the config is fetched from the (async) config store; the SQL
     build itself (gen_query) is pure CPU. `dim` (table mode) may be a single field
     or a list of fields to break the KPI down by more than one dimension (e.g.
-    ["region_name", "priority"])."""
+    ["region_name", "priority"]).
+
+    mode='records' is a raw-row listing (see module docstring) rather than an
+    aggregate: `limit` is embedded as a LIMIT clause in the generated SQL (ignored
+    by the other modes, whose result sets are already bounded by dimension
+    cardinality)."""
     catalog = get_catalog()
     config = await catalog.get(kpi)
     if config is None:
@@ -515,6 +529,11 @@ async def generate_query(
 
     if mode not in _MODES:
         raise QueryError(f"mode must be one of {_MODES}, got {mode!r}")
+    if mode == "records" and (dim or comparison):
+        raise QueryError(
+            "mode='records' is a raw-row listing and doesn't take `dim` (a "
+            "breakdown) or comparison=True (the prior-year window) — pass only "
+            "filters/period/limit.")
 
     # ---- resolve the date window ----------------------------------------
     resolved_from_phrase = None
@@ -584,14 +603,18 @@ async def generate_query(
     # series (a per-dimension trend also groups by the dimension).
     dim_names = ((eff_dim if isinstance(eff_dim, (list, tuple)) else [eff_dim])
                  if (mode in ("table", "series") and eff_dim) else [])
+    # mode='records' selects a curated column set instead of grouping by a
+    # dimension — resolved the same way (declared field, or a real schema column
+    # on the primary table via the augmentation below).
+    detail_cols = _kpi_detail_columns(config) if mode == "records" else []
     # Names not already in the KPI's curated `fields` are schema-fallback resolved --
     # kept so a live-execution failure on one of them (schema_v3.yaml claims the
     # column exists but the real table doesn't have it) can be diagnosed as schema
     # drift rather than surfaced as an opaque driver error (see run_query below).
     pre_fields = config.get("fields") or {}
-    schema_fallback_cols = sorted({n for n in [*dim_names, *filter_by.keys()]
+    schema_fallback_cols = sorted({n for n in [*dim_names, *detail_cols, *filter_by.keys()]
                                    if n and n not in pre_fields})
-    config = _augment_fields(config, [*dim_names, *filter_by.keys()])
+    config = _augment_fields(config, [*dim_names, *detail_cols, *filter_by.keys()])
     _validate_filters(config, filter_by)
     filter_by = _resolve_filter_values(config, filter_by)
     # A SQL-mode KPI inlines filters (and, for table mode, an injected GROUP BY
@@ -718,7 +741,8 @@ async def generate_query(
             # SQL-mode per-dimension trend: authored breakdown query per bucket.
             sql, params = _sql_bucket_breakdown(config, sql_series_dim_cols, win, label)
         else:
-            payload = gq.build_payload(config, mode, win, filter_by, eff_dim, eff_grain)
+            payload = gq.build_payload(config, mode, win, filter_by, eff_dim, eff_grain,
+                                       detail_columns=detail_cols, limit=limit)
             try:
                 sql, params = gq.build_sql(config, payload)
             except ValueError as exc:
@@ -759,6 +783,8 @@ async def generate_query(
         out["mode_note"] = mode_note
     if schema_fallback_cols:
         out["schema_fallback_columns"] = schema_fallback_cols
+    if mode == "records":
+        out["detail_columns"] = detail_cols
     if cmp_pair:
         out["comparison_windows"] = resolved_from_phrase["comparison"]
     log.info("generate_query kpi=%s mode=%s grain=%s window=%s..%s dim=%s -> %d result(s)%s%s",
@@ -811,7 +837,7 @@ async def run_query(
     """
     out = await generate_query(kpi, period=period, from_date=from_date, to_date=to_date,
                                as_of=as_of, mode=mode, dim=dim, grain=grain,
-                               filters=filters, comparison=comparison)
+                               filters=filters, comparison=comparison, limit=limit)
 
     source = ((await get_catalog().get(kpi)) or {}).get("source") or {}
     dialect = source.get("dialect", "postgres")
@@ -1375,7 +1401,8 @@ async def get_record_detail(
     linked to it — NEVER a count/metric.
 
     * ``record_id`` — e.g. ``"INC0353896"``. Its prefix picks the entity + human
-      id column via ``record_prefixes.json`` (override with ``entity``).
+      id column via the entity's declared ``id_prefix``/``id_column`` in
+      ``schema_v3.yaml`` (override with ``entity``).
     * ``related`` — ``"all"`` (default: every entity reachable in one relationship
       hop), a list of entity names/slugs (e.g. ``["change", "problem"]``), or
       ``"none"``/``[]`` for just the record itself.

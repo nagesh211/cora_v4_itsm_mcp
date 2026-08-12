@@ -150,6 +150,64 @@ class SchemaLoader:
         tables = entity.get("tables") or []
         return tables[0]["name"] if tables else None
 
+    # ---- entity identity (record-id prefix / authoritative id column / -----
+    # ---- alias vocabulary), declared directly on the entity in schema_v3 --
+    def entity_id_prefixes(self, slug: str) -> List[str]:
+        """Declared record-id prefixes for one entity (e.g. ['INC']), if any.
+        An entity with no distinct record-id namespace (e.g. availability)
+        declares none."""
+        found = self.get_entity(slug)
+        if not found:
+            return []
+        _, entity = found
+        raw = entity.get("id_prefix")
+        if not raw:
+            return []
+        if isinstance(raw, str):
+            return [raw.upper()]
+        return [str(p).upper() for p in raw]
+
+    def id_prefix_map(self) -> Dict[str, str]:
+        """{PREFIX -> entity slug} across every entity that declares one (a
+        prefix has no schema-derivable equivalent -- nothing about the schema
+        says an incident id starts with "INC" -- so this is data, not a rule)."""
+        out: Dict[str, str] = {}
+        for _mod, slug, _entity in self.all_entities():
+            for pfx in self.entity_id_prefixes(slug):
+                out[pfx] = slug
+        return out
+
+    def entity_id_column(self, slug: str) -> Optional[str]:
+        """Declared authoritative id-column override for one entity, if any.
+
+        Needed where the schema-only "first non-system *_id" heuristic picks
+        the wrong column -- e.g. itsm_release's first non-system identifier is
+        change_id (via its join table), not release_number; itsm_service_request's
+        is first_task_id, not request_item_id."""
+        found = self.get_entity(slug)
+        if not found:
+            return None
+        _, entity = found
+        return entity.get("id_column")
+
+    def entity_aliases_declared(self, slug: str) -> List[str]:
+        """Declared vocabulary overlay for one entity -- aliases NOT derivable
+        from its name (e.g. 'ritm'/'req'/'sr' for itsm_service_request,
+        'outage'/'uptime'/'downtime' for itsm_availability)."""
+        found = self.get_entity(slug)
+        if not found:
+            return []
+        _, entity = found
+        return list(entity.get("aliases") or [])
+
+    def declared_entity_aliases(self) -> Dict[str, str]:
+        """{alias -> entity slug} overlay across every entity's `aliases` list."""
+        out: Dict[str, str] = {}
+        for _mod, slug, _entity in self.all_entities():
+            for alias in self.entity_aliases_declared(slug):
+                out[str(alias).strip().lower()] = slug
+        return out
+
     # ---- columns / tables ------------------------------------------------
     @staticmethod
     def table_fqns(entity: dict) -> List[str]:
@@ -206,6 +264,9 @@ class SchemaLoader:
             "database_type": module.get("database_type"),
             "entity": entity.get("name"),
             "description": entity.get("description"),
+            "id_prefix": self.entity_id_prefixes(slug),
+            "id_column": self.entity_id_column(slug),
+            "aliases": self.entity_aliases_declared(slug),
             "tables": tables,
             "dimensions": [c["name"] for c in by_role.get("dimension", [])],
             "measures": [c["name"] for c in by_role.get("measure", [])],

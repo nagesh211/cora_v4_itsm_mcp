@@ -1153,8 +1153,55 @@ def driver_substitute(config, payload):
            one that IS curated. A dim that's neither curated nor a real
            schema column is rejected -- use the KPI's drilldown breakdown or
            a DSL KPI instead.
+    * RECORDS mode (``payload["detail_columns"]`` is not None): a raw-row
+      listing, not an aggregate — requires an authored ``config.sql.detail_query``
+      companion (same ``{from_date}``/``{to_date}``/``{as_of}``/``{filters}``
+      convention as ``base_query``), so the listing reuses the SAME business-rule
+      WHERE scoping as the metric itself rather than a generically re-derived one.
+      There is deliberately no generic fallback here: an unauthored SQL-mode KPI
+      raises rather than guessing at which conditions in ``base_query`` are
+      business rules vs. incidental to its aggregation.
     """
     payload = payload or {}
+    detail_cols = payload.get("detail_columns")
+    if detail_cols is not None:
+        tmpl = (config.get("sql") or {}).get("detail_query")
+        if not tmpl:
+            raise ValueError(
+                "SQL-mode KPI %r has no authored sql.detail_query for a raw-row "
+                "listing (needed for record_investigation); add one using the same "
+                "{from_date}/{to_date}/{as_of}/{filters} convention as base_query."
+                % config.get("name"))
+        dates = {k: payload.get(k) for k in ("from_date", "to_date", "as_of")}
+        anchor = dates["as_of"] or dates["to_date"] or dates["from_date"]
+        if anchor is not None:
+            if "{as_of}" in tmpl and not dates["as_of"]:
+                dates["as_of"] = anchor
+            if "{to_date}" in tmpl and not dates["to_date"]:
+                dates["to_date"] = anchor
+            if "{from_date}" in tmpl and not dates["from_date"]:
+                dates["from_date"] = dates["as_of"] or anchor
+        sql = substitute_dates(tmpl, dates)
+        frag = compile_sql_filters(config, payload.get("filter_by") or {})
+        if "{filters}" in sql:
+            sql = sql.replace("{filters}", frag)
+        elif frag:
+            raise ValueError(
+                "SQL-mode KPI %r detail_query cannot apply filters %s: it has no "
+                "{filters} placeholder." % (
+                    config.get("name"),
+                    [k for k in (payload.get("filter_by") or {}) if k != "granularity"]))
+        leftover = [ph for ph in ("{from_date}", "{to_date}", "{as_of}") if ph in sql]
+        if leftover:
+            raise ValueError(
+                "date window not resolved for SQL-mode KPI %r detail_query: unfilled "
+                "%s (no date supplied for the requested window)."
+                % (config.get("name"), leftover))
+        limit = payload.get("limit")
+        if limit and " limit " not in sql.lower():
+            sql += " LIMIT %d" % int(limit)
+        return sql, []
+
     dims = payload.get("group_by_dim")
     dim_list = (list(dims) if isinstance(dims, (list, tuple)) else [dims]) if dims else []
     fields = dict(get_fields(config))       # local copy: schema fallback may add entries
@@ -1251,27 +1298,37 @@ def dsl_build(config, payload=None):
     sel, group, where, params = [], [], [], []
 
     # ── SELECT ───────────────────────────────────────────────────────────
-    dims = payload.get("group_by_dim")
-    if dims:
-        # accept a single field (str) or several (list) — one GROUP BY column each.
-        # first dim keeps the historical `grp` alias; extras get grp2, grp3, …
-        dim_list = list(dims) if isinstance(dims, (list, tuple)) else [dims]
-        for i, dname in enumerate(dim_list):
-            c = col(dname)
-            alias = "grp" if i == 0 else "grp%d" % (i + 1)
-            sel.append("%s AS %s" % (c, alias)); group.append(c)
-    for g in dsl.get("group_by_fields", []) or []:
-        c = col(g["field"]); sel.append("%s AS %s" % (c, g["alias"])); group.append(c)
-    for d in dsl.get("dimensions", []) or []:
-        c = col(d["field"]); sel.append("%s AS %s" % (c, d["alias"])); group.append(c)
-    tg = payload.get("time_group") or dsl.get("time_group")   # payload = series mode
-    if tg:
-        grain = (payload.get("filter_by") or {}).get("granularity") or tg["grain"]
-        e = "date_trunc('%s', %s)" % (_GRAIN.get(grain, grain), col(tg["field"]))
-        sel.append("%s AS %s" % (e, tg.get("alias", "bucket")))
-        group.append(e)
-    for m in dsl["measures"]:
-        sel.append("%s AS %s" % (_measure_expr(m["expression"], fields), m["alias"]))
+    # RECORDS mode (payload["detail_columns"] is not None): a raw-row listing, not
+    # an aggregate — select the requested columns as-is, no GROUP BY/measures/time
+    # bucket. WHERE (below, including static_filters) is unchanged, so the listing
+    # reuses the SAME business-rule scoping as this KPI's own aggregate modes —
+    # this is what makes "how many" and "which ones" describe the same population.
+    detail_cols = payload.get("detail_columns")
+    if detail_cols is not None:
+        for c in detail_cols:
+            sel.append("%s AS %s" % (col(c), c))
+    else:
+        dims = payload.get("group_by_dim")
+        if dims:
+            # accept a single field (str) or several (list) — one GROUP BY column each.
+            # first dim keeps the historical `grp` alias; extras get grp2, grp3, …
+            dim_list = list(dims) if isinstance(dims, (list, tuple)) else [dims]
+            for i, dname in enumerate(dim_list):
+                c = col(dname)
+                alias = "grp" if i == 0 else "grp%d" % (i + 1)
+                sel.append("%s AS %s" % (c, alias)); group.append(c)
+        for g in dsl.get("group_by_fields", []) or []:
+            c = col(g["field"]); sel.append("%s AS %s" % (c, g["alias"])); group.append(c)
+        for d in dsl.get("dimensions", []) or []:
+            c = col(d["field"]); sel.append("%s AS %s" % (c, d["alias"])); group.append(c)
+        tg = payload.get("time_group") or dsl.get("time_group")   # payload = series mode
+        if tg:
+            grain = (payload.get("filter_by") or {}).get("granularity") or tg["grain"]
+            e = "date_trunc('%s', %s)" % (_GRAIN.get(grain, grain), col(tg["field"]))
+            sel.append("%s AS %s" % (e, tg.get("alias", "bucket")))
+            group.append(e)
+        for m in dsl["measures"]:
+            sel.append("%s AS %s" % (_measure_expr(m["expression"], fields), m["alias"]))
 
     # ── WHERE ──────────────────────────────────────────────────────────────
     if dsl.get("where_raw"):
@@ -1309,19 +1366,27 @@ def dsl_build(config, payload=None):
         sql += " WHERE " + " AND ".join(where)
     if group:
         sql += " GROUP BY " + ", ".join(group)
-    ob = dsl.get("order_by") or []
-    if ob:
-        malias = {m["alias"] for m in dsl["measures"]}
-        parts = []
-        for o in ob:
-            f = o["field"]; d = o.get("direction", "ASC")
-            parts.append("%s %s" % (f if f in malias else col(f), d))
-        sql += " ORDER BY " + ", ".join(parts)
-    if dsl.get("limit"):
-        sql += " LIMIT %d" % int(dsl["limit"])
+    if detail_cols is not None:
+        # RECORDS mode: the CALLER's row cap applies (this is a listing, not the
+        # KPI's aggregate view) — the config's own `dsl.limit`/`order_by`/
+        # `post_aggregations` are for the aggregate shape and don't apply here.
+        rec_limit = payload.get("limit")
+        if rec_limit:
+            sql += " LIMIT %d" % int(rec_limit)
+    else:
+        ob = dsl.get("order_by") or []
+        if ob:
+            malias = {m["alias"] for m in dsl["measures"]}
+            parts = []
+            for o in ob:
+                f = o["field"]; d = o.get("direction", "ASC")
+                parts.append("%s %s" % (f if f in malias else col(f), d))
+            sql += " ORDER BY " + ", ".join(parts)
+        if dsl.get("limit"):
+            sql += " LIMIT %d" % int(dsl["limit"])
 
     # ── POST-AGGREGATION ────────────────────────────────────────────────────
-    pa = dsl.get("post_aggregations")
+    pa = dsl.get("post_aggregations") if detail_cols is None else None
     if pa:
         outer = ", ".join("%s AS %s" % (p["expression"], p["alias"]) for p in pa)
         sql = "SELECT %s FROM (%s) agg" % (outer, sql)
@@ -1431,7 +1496,8 @@ def _find_view(config, kind):
     return None
 
 
-def build_payload(config, mode, window, filter_by, dim, grain):
+def build_payload(config, mode, window, filter_by, dim, grain,
+                  detail_columns=None, limit=None):
     """Assemble the payload for a given request, exactly like the services do.
 
     window = (from_ts|None, to_ts). from_ts None -> snapshot as-of read.
@@ -1460,6 +1526,13 @@ def build_payload(config, mode, window, filter_by, dim, grain):
         payload["group_by_dim"] = dim or view.get("by")
         if not payload["group_by_dim"]:
             sys.exit("table mode needs a dimension: pass --dim <field>")
+    elif mode == "records":
+        # A raw-row listing, not an aggregate -- see dsl_build/driver_substitute's
+        # `detail_columns is not None` branches. Always set the key (even to an
+        # empty list) so it reliably signals "records mode" downstream.
+        payload["detail_columns"] = list(detail_columns or [])
+        if limit:
+            payload["limit"] = limit
     return payload
 
 

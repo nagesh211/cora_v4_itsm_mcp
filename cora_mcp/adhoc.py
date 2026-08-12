@@ -58,7 +58,8 @@ def _norm(s: Any) -> str:
 # plan_query — discovery
 # ---------------------------------------------------------------------------
 def _alias_to_slug() -> Dict[str, str]:
-    """Every entity alias phrase -> entity slug (from record_prefixes.json)."""
+    """Every entity alias phrase -> entity slug (derived from schema_v3.yaml entity
+    names, plus each entity's declared `aliases` overlay)."""
     from cora_mcp.record_lookup import registry
     return dict(registry()._entity_aliases)   # alias(lower) -> slug
 

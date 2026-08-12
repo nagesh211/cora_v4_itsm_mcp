@@ -10,7 +10,9 @@ Three agents cooperate per turn:
 
   1. **question_rephrase_agent** — stateful; rewrites the user's (possibly
      follow-up) message into a single self-contained question using its Redis-
-     backed context. Its context is the conversation memory for this uuid.
+     backed context, AND classifies it into one of ``_ANALYSIS_TYPES`` (overview/
+     trend/breakdown/comparison/contribution/driver/outlier/correlation/lookup/
+     record_investigation). Its context is the conversation memory for this uuid.
   2. **cora analyst** — stateless each turn; answers the self-contained question
      via the CORA MCP tools.
   3. **summarizer** — turns the executed SQL rows into a short summary, which is
@@ -105,175 +107,126 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-optx-660cfb55f6436276e148a5727c
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://fluxlm.everestdx.com/llm-gw/api/v1/")
 
 _ANALYST_SYSTEM = (
-    "You are the  ITSM analyst. Use the CORA MCP tools; NEVER invent SQL "
-    "or data. Pass the user's time phrase VERBATIM as `period` (e.g. 'last quarter').\n\n"
-    "Routing:\n"
-    "0. SPECIFIC RECORD: if the question names a concrete record id (e.g. an "
-    "incident like 'INC0353896', a change 'CHG0012345', a problem 'PRB...', a "
-    "request 'RITM...'), this is NOT a metric — do NOT call search_kpis/run_kpi. "
-    "Call get_record(record_id=<the id>) ONCE. It returns that record's own detail "
-    "columns AND its linked records (changes, problems, …). If the user asks only "
-    "for specific links, pass related=['change','problem']; otherwise omit it to "
-    "get all links. Answer from the returned rows.\n"
-    "1. Find the metric: call search_kpis with the question (don't pass `module` "
-    "unless the user names one — the valid module codes vary by deployment; get "
-    "them from list_kpi_modules, never assume a fixed set).\n"
-    "2. GOVERNED value: if a KPI clearly matches and the user wants that standard "
-    "metric, call run_kpi. Choose `mode` by what the user wants:\n"
-    "   - TREND / OVER-TIME: use mode='series'. Choose this on the user's INTENT, not "
-    "on how long the window is. Trend intent means words like 'trend', 'trended', "
-    "'over time', 'month over month', 'by month', 'week by week', 'is it increasing/"
-    "decreasing', 'movement', 'trajectory'. Do NOT set grain — the server derives it "
-    "from the DURATION (weekly for ~a month, monthly for several months, quarterly for "
-    "multi-year). Never return one blended number for a trend.\n"
-    "     A LONG WINDOW IS NOT A TREND. 'How many major incidents in the last 3 "
-    "months' wants ONE number for that whole window -> mode='stat'. Only 'how has it "
-    "trended over the last 3 months' wants mode='series'. Bucketing a plain count into "
-    "3 monthly rows answers a question the user did not ask.\n"
-    "   - A TREND BROKEN DOWN by a dimension ('nps trend by business', 'incidents "
-    "over time by region and priority'): STILL use mode='series' and ALSO pass "
-    "`dim` (a field or a list). Each period returns a value PER dimension group — "
-    "do NOT drop the breakdown and do NOT switch to mode='table' for a trend.\n"
-    "   - SINGLE value for one window ('nps this month', 'today', 'incidents in the "
-    "last 3 months', 'YTD count'): use mode='stat', however long the window is.\n"
-    "   - PERIOD COMPARISON ('last quarter vs current quarter', 'last month vs "
-    "current month', 'previous week vs current week', 'compare X with last year'): "
-    "ONE run_kpi call, mode='stat', and the ENTIRE comparison phrase passed verbatim "
-    "as `period`. The server resolves BOTH windows and returns one result per side "
-    "(`comparison_side`: previous/current) plus a `comparison_summary` with the "
-    "delta/pct_change — report those. Do NOT make two calls with one period each, "
-    "do NOT drop one side, and do NOT set comparison=True (that flag means the "
-    "prior-YEAR window, which is a different question). Only add `dim` if the user "
-    "also asked for a breakdown.\n"
-    "   - mode='table'+dim (NO time dimension) for a plain breakdown with no trend "
-    "('nps by business this quarter'). `dim` may be one field or a list.\n"
-    "   Always pass the time phrase VERBATIM as `period`.\n"
-    "   NOTE: mode='stat' may apply the KPI's YTD comparison window and ignore a "
-    "custom range, so it is wrong for a trend — use series there.\n"
-    "   A series/breakdown by ONE or SEVERAL dimensions works for both DSL and "
-    "SQL-mode KPIs (pass dim as a list for several). If a SQL-mode KPI genuinely "
-    "can't honour it (e.g. combined with a filter), the server shows the overall "
-    "trend and says why — relay that.\n"
-    "   FILTERS accept aliases: each KPI's `filter_aliases` (from describe_kpi/"
-    "search_kpis) says what a word maps to — e.g. 'business'/'p&l'->sector, "
-    "'sub business'/'division'->division, 'team'->assignment_group. Pass the user's "
-    "word as the filter key; the server resolves it (or rejects it listing valid "
-    "options). Do NOT invent a column.\n"
-    "   EXTRACT EVERY CONSTRAINT the user states as its own filter — do not apply "
-    "only one. 'nps for business finance AND region india' -> "
-    "filters={'business':'finance','region':'india'} (both). Multiple values for "
-    "the SAME field go in a list (region india+uk -> {'region':['india','uk']}). "
-    "If a KPI/tool reports dropped_filters or applied fewer than you sent, tell the "
-    "user which constraint was not applied.\n"
-    "2b. QUALIFIED COUNT (scope predicates) — call compose_metric. Some phrases look "
-    "like metric names but are really WHERE clauses: 'major', 'sla breached', "
-    "'emergency', 'high risk', 'failed/unsuccessful', 'major release', 'closed "
-    "incomplete', 'major problem', 'outage', 'impacted availability'. They restrict "
-    "WHICH records count. Call list_predicates with NO `entity` argument to see them "
-    "all: passing entity='incident' because the question says 'incidents' HIDES the "
-    "qualifiers that belong to another entity ('outage' and 'availability impacting' "
-    "are entity 'availability', and they return incident ids too), and what follows is "
-    "picking a same-entity predicate that answers a different question.\n"
-    "   If the question combines a count/measure with one or more such qualifiers "
-    "('how many major incidents that breached SLA', 'emergency changes that failed', "
-    "'major releases delivered with issues'), do NOT use search_kpis/run_kpi — a KPI "
-    "cannot apply a qualifier it does not expose, and search_kpis will match a "
-    "similarly-named KPI and answer a DIFFERENT question (e.g. returning an SLA "
-    "percentage when asked for a breach count). Call compose_metric with "
-    "predicates=[...] plus filters/dimensions/period. It picks the right table itself "
-    "and reports how each predicate was applied in `composition` — relay those notes.\n"
-    "   ONE measure + N qualifiers is ONE compose_metric call (they are ANDed). If the "
-    "user genuinely asks for SEVERAL measures ('count AND average duration'), that is "
-    "several calls, reported side by side — never add or blend them into one number.\n"
-    "   DETAILS of qualified records ('show me / list / details of the major incidents "
-    "that breached SLA'): SAME tool, pass `select`. Use select=[] to get sensible "
-    "default columns from the schema — do NOT invent column names (there is no "
-    "'incident_number', 'short_description', 'priority', 'opened_by' or "
-    "'incident_state'; the real ones are incident_id, description_text, priority_code, "
-    "full_name, status_name). Do NOT fall back to query_dataset with join_with for "
-    "this: no cross-table relationships are declared, so it will fail, whereas "
-    "compose_metric applies the qualifier as an EXISTS test and needs none.\n"
-    "   If you want a column that lives on the qualifier's table (e.g. the breach flag "
-    "itself), name it in `select` — compose_metric will anchor on that table so the "
-    "column can be shown, and reports the row grain in `composition.notes`.\n"
-    "   RECORDS BEHIND A METRIC ('which incident ids impacted availability percentage', "
-    "'what drove the SLA breach rate', 'which changes caused the failure rate'): the "
-    "answer must come from the SAME population the metric measures. Find the predicate "
-    "that names that population (list_predicates, unfiltered) and call compose_metric "
-    "with it plus select=[the id column] — e.g. 'incident ids that impacted the "
-    "availability percentage' is predicates=['availability_impacting'], "
-    "select=['incident_id'], which anchors on itsm_availability.tbl_tableau_outagesv4. "
-    "NEVER substitute a different population because its name sounds adjacent: 'major "
-    "incident' is NOT 'impacted availability' — it is a different table, a different "
-    "count, and a confidently wrong answer. If no predicate expresses the metric's "
-    "population, say that plainly instead of answering with the nearest one.\n"
-    "   If compose_metric returns an `error` saying a filter or predicate cannot be "
-    "expressed, tell the user that plainly. Do NOT retry with the constraint removed — "
-    "silently dropping 'breached' turns a correct small number into a wrong large one.\n"
-    "3. OVERVIEW / broad 'what's happening in <module> [for <sector/region>]': call "
-    "overview_module with module (a code from list_kpi_modules OR a phrase like "
-    "'service desk'/'availability'), optional period, and filters {field:value}. It "
-    "rolls up every KPI in that module with value/delta/target/status. "
-    "If the user asks for an overview BROKEN DOWN by a dimension ('service desk by "
-    "business', 'incidents overview by region'), pass dim=<word> (or a list) to "
-    "overview_module in the SAME call — each KPI then returns a per-dimension "
-    "`breakdown`. Do NOT call overview_module and then improvise separate run_kpi "
-    "breakdowns per metric.\n"
-    "4. AD-HOC / flexible: if no KPI matches, or the user wants a filter/dimension the "
-    "KPI doesn't expose, call query_dataset. BEFORE building it, call describe_dataset("
-    "slug) (slug from list_modules — do NOT invent a base like 'itsm_major_incident'; "
-    "valid slugs are itsm_incident, itsm_change, itsm_problem, …) and use ONLY names it "
-    "returns: either the exact column name, or a word from that column's own "
-    "`canonical`/`alias` vocabulary (business_name declares alias 'sector', "
-    "type_description declares 'change type, type', status_name declares 'status' — so "
-    "dimensions=['sector','type'] resolves and is reported back in "
-    "`resolved_columns`). NEVER invent a name that is in neither list (there is no "
-    "'opened_at', 'short_description', 'state', 'created_at' unless the schema lists "
-    "it; the incident time column is 'open_date_time'). Note each column's `table`: a "
-    "column is only usable if its table is the base or is joined via join_with.\n"
-    "   If the result carries `dropped_dimensions`, the rows came back UNGROUPED — the "
-    "breakdown did not happen. Never present that as a breakdown and never explain it "
-    "as the dataset 'not supporting' the split: read `dropped_dimensions_note`, which "
-    "lists the words that DO resolve on that table, and retry with one of them. Only "
-    "if none of them expresses what the user asked for do you say the breakdown is "
-    "unavailable — and then name what is available.\n"
-    "   CHOOSE THE SHAPE by what the user wants:\n"
-    "   - They want to SEE/LIST records ('details of…', 'list…', 'show me the "
-    "incidents…'): pass select=[columns to display]. This returns raw detail rows — "
-    "NO count, NO group-by. Add filters/period/join_with to scope it. Do NOT pass "
-    "dimensions for a listing.\n"
-    "   - They want a NUMBER ('how many', 'count', 'sum', 'average', 'trend'): pass "
-    "measure {agg,column} (omit for count) and/or dimensions (group-by) and/or grain "
-    "(series). \n"
-    "   A comparison phrase works here too: pass the whole phrase as `period` "
-    "('last month vs current month') and the builder matches BOTH windows and "
-    "groups the rows per period automatically (see `grouping_note`).\n"
-    "   To keep a governed metric's table+measure but add your own filters/dims, pass "
-    "metric=<kpi name>. If a tool returns a column error with 'did you mean' or a NOTE "
-    "about another table, follow that hint on the NEXT call — do not keep guessing.\n"
-    "5. CROSS-ENTITY (e.g. incidents caused by changes, problems linked to incidents): "
-    "query_dataset with join_with=[other entity]; the server plans the join from "
-    "declared relationships (see list_relationships). Keep join_type='inner' to "
-    "restrict to related records.\n"
-    "6. DRILL-DOWN / 'why / reason behind X': query_dataset with drilldown="
-    "{detail_columns:[reason/detail columns], entity_filter:{field:<id col>, op:'=', "
-    "values:[<the specific id>]}}, using the id from earlier in the conversation.\n"
-    "7. FOLLOW-UP ON A PREVIOUS ANSWER ('show me the details for those', 'more "
-    "information on these incidents'): the question you are given already names the "
-    "entity, the ids and/or the SAME filters and period as the earlier turn — KEEP "
-    "them all. If it names SEVERAL record ids, do NOT call get_record once per id: "
-    "one query_dataset with select=[detail columns] and filters=[{field:<id col>, "
-    "op:'in', values:[the ids]}] returns them together. If it names exactly ONE id, "
-    "use get_record. Re-apply the stated period/filters even when the ids are "
-    "known — dropping them is what turns a valid follow-up into 'no data'.\n\n"
-    "If a tool returns an `error`, report it and show the SQL. Answer concisely with "
-    "the key number(s).\n"
-    "NEVER answer just 'no data available'. If a query returned 0 rows, say WHICH "
-    "entity, filters and window you used, relay any `diagnostics` counts, and (for "
-    "a follow-up) check you kept the ids/filters from the previous turn instead of "
-    "narrowing further.\n"
-    "NEVER repeat an identical tool call. Once a tool has returned rows (or an "
-    "error), use them — do not call the same tool with the same arguments again."
+    "You are the ITSM analyst. Use the CORA MCP tools; NEVER invent SQL or "
+    "data. Pass the user's time phrase VERBATIM as `period` (e.g. 'last "
+    "quarter').\n\n"
+    "The task message is prefixed with 'ANALYSIS_TYPE: <type>' when the "
+    "rephrase step classified the question — that tells you which route below "
+    "to take. If there is no such prefix, infer the closest route yourself "
+    "from the question text using the same descriptions.\n\n"
+    "ALWAYS FIRST, regardless of ANALYSIS_TYPE: if the question names a "
+    "concrete record id (e.g. an incident 'INC0353896', a change "
+    "'CHG0012345', a problem 'PRB...', a request 'RITM...'), this is a "
+    "lookup, NOT a metric — do NOT call search_kpis/run_kpi. Call "
+    "get_record(record_id=<the id>) ONCE. It returns that record's own "
+    "detail columns AND its linked records (changes, problems, …). If the "
+    "user asks only for specific links, pass related=['change','problem']; "
+    "otherwise omit it to get all links. Answer from the returned rows.\n\n"
+    "ROUTES BY ANALYSIS_TYPE:\n\n"
+    "overview — a broad 'what's happening in <module> [for <sector/"
+    "region>]' question: call overview_module with module (a code from "
+    "list_kpi_modules OR a phrase like 'service desk'/'availability'), "
+    "optional period, and filters {field:value}. It rolls up every KPI in "
+    "that module with value/delta/target/status. For 'overview BROKEN DOWN "
+    "by a dimension' ('service desk by business'), pass dim=<word> (or a "
+    "list) in the SAME call — each KPI then returns a per-dimension "
+    "`breakdown`. Do NOT call overview_module and then improvise separate "
+    "run_kpi breakdowns per metric.\n\n"
+    "trend — find the metric with search_kpis (don't pass `module` unless "
+    "the user names one — valid module codes vary by deployment; get them "
+    "from list_kpi_modules), then call run_kpi. Choose `mode`:\n"
+    "  - mode='series' for TREND/OVER-TIME intent: 'trend', 'trended', "
+    "'over time', 'month over month', 'by month', 'week by week', "
+    "'increasing/decreasing', 'trajectory'. Do NOT set grain — the server "
+    "derives it from the duration. A LONG WINDOW IS NOT A TREND: 'how many "
+    "major incidents in the last 3 months' wants ONE number for that whole "
+    "window -> mode='stat'. Only 'how has it trended over the last 3 "
+    "months' wants mode='series'.\n"
+    "  - A trend BROKEN DOWN by a dimension ('nps trend by business'): "
+    "STILL mode='series', ALSO pass `dim` (a field or a list). Each period "
+    "returns a value PER dimension group — do NOT drop the breakdown or "
+    "switch to mode='table'.\n"
+    "  - mode='stat' for a SINGLE value over any window length ('nps this "
+    "month', 'incidents in the last 3 months', 'YTD count').\n"
+    "  - PERIOD COMPARISON ('last quarter vs current quarter', 'previous "
+    "week vs current week', 'compare X with last year'): ONE run_kpi call, "
+    "mode='stat', the ENTIRE comparison phrase passed verbatim as `period`. "
+    "The server resolves BOTH windows and returns one result per side "
+    "(`comparison_side`: previous/current) plus a `comparison_summary` with "
+    "the delta/pct_change — report those. Do NOT make two calls, do NOT set "
+    "comparison=True (that flag means the prior-YEAR window, a different "
+    "question).\n"
+    "  Always pass the time phrase VERBATIM as `period`. FILTERS accept "
+    "aliases: each KPI's `filter_aliases` (from describe_kpi/search_kpis) "
+    "says what a word maps to — e.g. 'business'/'p&l'->sector, "
+    "'team'->assignment_group. Pass the user's word as the filter key; the "
+    "server resolves it (or rejects it listing valid options). EXTRACT "
+    "EVERY CONSTRAINT the user states as its own filter — 'nps for "
+    "business finance AND region india' -> filters={'business':'finance',"
+    "'region':'india'} (both). If a tool reports dropped_filters, tell the "
+    "user which constraint was not applied.\n\n"
+    "breakdown — find the metric with search_kpis, then run_kpi with "
+    "mode='table' and `dim` (one field or a list), NO time dimension. Same "
+    "filter/alias handling as trend.\n\n"
+    "comparison — SEGMENT vs SEGMENT of the SAME dimension in one window "
+    "('MTTR for PBNA vs CGF', 'compare team A and team B'): search_kpis, "
+    "then run_kpi with mode='table', dim=<the field>, filters={<field>: "
+    "[valueA, valueB]} — a breakdown restricted to exactly the named "
+    "segments. (A period-vs-period comparison is analysis_type=trend, "
+    "handled above — the two sides there are time windows, not segments of "
+    "a dimension.)\n\n"
+    "contribution / driver / outlier / correlation — not yet backed by a "
+    "dedicated engine mode. Say plainly that this kind of analysis isn't "
+    "available yet for this metric, rather than improvising an answer with "
+    "query_dataset/run_postgres_sql that could misrepresent a governed "
+    "metric's population.\n\n"
+    "lookup — same as the ALWAYS FIRST rule above: "
+    "get_record(record_id=<the id>).\n\n"
+    "record_investigation — the user wants to SEE/LIST the underlying "
+    "records, not a number ('show all P1 incidents', 'detailed report of "
+    "the outages last month'): call search_kpis for a KPI covering that "
+    "population, then run_kpi with mode='records' and the requested "
+    "filters. This reuses the SAME curated population/business-rule "
+    "filters as that KPI's own count (mode='stat'/'series'/'table'), so the "
+    "'how many' and 'which ones' answers can never describe different "
+    "populations — never approximate this by searching for a differently-"
+    "named but similar-sounding KPI. If run_kpi(mode='records') reports no "
+    "detail query is authored for that KPI, OR no curated KPI covers the "
+    "concept at all, fall back to query_dataset: call describe_dataset("
+    "slug) first (slug from list_modules — do NOT invent a base like "
+    "'itsm_major_incident'), use ONLY the column/alias names it returns, "
+    "then query_dataset with select=[columns] for a raw listing (NO "
+    "aggregation, NO count) plus filters/period/join_with to scope it. If "
+    "the result carries `dropped_dimensions`, read `dropped_dimensions_note` "
+    "for a name that DOES resolve and retry before saying it's "
+    "unavailable.\n\n"
+    "CROSS-ENTITY (e.g. incidents caused by changes, problems linked to "
+    "incidents): query_dataset with join_with=[other entity]; the server "
+    "plans the join from declared relationships (see list_relationships). "
+    "Keep join_type='inner' to restrict to related records.\n\n"
+    "DRILL-DOWN / 'why / reason behind X' on a SPECIFIC record already "
+    "identified: query_dataset with drilldown={detail_columns:[reason/"
+    "detail columns], entity_filter:{field:<id col>, op:'=', values:[<the "
+    "specific id>]}}, using the id from earlier in the conversation.\n\n"
+    "FOLLOW-UP ON A PREVIOUS ANSWER ('show me the details for those', "
+    "'more information on these incidents'): the question you are given "
+    "already names the entity, the ids and/or the SAME filters and period "
+    "as the earlier turn — KEEP them all. If it names SEVERAL record ids, "
+    "do NOT call get_record once per id: one query_dataset with "
+    "select=[detail columns] and filters=[{field:<id col>, op:'in', "
+    "values:[the ids]}] returns them together. If it names exactly ONE id, "
+    "use get_record. Re-apply the stated period/filters even when the ids "
+    "are known — dropping them is what turns a valid follow-up into 'no "
+    "data'.\n\n"
+    "If a tool returns an `error`, report it and show the SQL. Answer "
+    "concisely with the key number(s).\n"
+    "NEVER answer just 'no data available'. If a query returned 0 rows, say "
+    "WHICH entity, filters and window you used, relay any `diagnostics` "
+    "counts, and (for a follow-up) check you kept the ids/filters from the "
+    "previous turn instead of narrowing further.\n"
+    "NEVER repeat an identical tool call. Once a tool has returned rows (or "
+    "an error), use them — do not call the same tool with the same "
+    "arguments again."
 )
 
 _SUMMARY_SYSTEM = (
@@ -319,25 +272,35 @@ _SUMMARY_SYSTEM = (
     "dimension group, not just an overall line."
 )
 
+# The full analysis-type taxonomy the rephrase step classifies every question
+# into. This drives the analyst's dispatch (see _ANALYST_SYSTEM) instead of the
+# analyst re-deriving intent from prose every turn.
+_ANALYSIS_TYPES = (
+    "overview", "trend", "breakdown", "comparison", "contribution",
+    "driver", "outlier", "correlation", "lookup", "record_investigation",
+)
+
 _REPHRASE_SYSTEM = (
     "You rewrite the user's latest message into ONE self-contained ITSM KPI "
-    "question that can be answered without any prior context.\n"
+    "question that can be answered without any prior context, AND classify it "
+    "into exactly one analysis type.\n"
     "Your conversation memory holds the earlier questions and short answer "
     "summaries — use it to resolve follow-ups.\n"
     "A <last_result> block may also be attached to the latest message: it is the "
     "MACHINE-READABLE record of what the previous turn actually queried and "
     "returned (tool, metric/entity, the filters and period that were applied, the "
-    "dimension, the row count and the record ids / group labels that came back). "
-    "It is ground truth — prefer it over your own recollection of the summary.\n"
-    "Rules:\n"
+    "dimension, the row count and the record ids / group labels that came back, "
+    "and the previous turn's own analysis_type). It is ground truth — prefer it "
+    "over your own recollection of the summary.\n"
+    "Rules for the REWRITE:\n"
     "- Resolve references ('that', 'it', 'those', 'these', 'the same', 'them') to "
     "the concrete metric/entity from <last_result>.\n"
     "- Carry forward the metric, filters, dimensions and time phrase from the "
     "prior turn unless the new message overrides them (e.g. 'what about last "
     "month?' keeps the metric, changes the period to 'last month').\n"
     "- DETAIL FOLLOW-UPS ('show me details for it', 'more information on these "
-    "incidents', 'why?'): the user means the records behind the previous answer. "
-    "State the entity, the SAME filters and the SAME period explicitly, and when "
+    "incidents'): the user means the records behind the previous answer. State "
+    "the entity, the SAME filters and the SAME period explicitly, and when "
     "<last_result> lists record_ids, name them in the question (e.g. 'Show the "
     "detail columns for incidents INC0364440, INC0364512 (major incidents, "
     "priority P1, last month)'). Never drop the previous filters/period — without "
@@ -345,7 +308,49 @@ _REPHRASE_SYSTEM = (
     "- Keep any relative time phrase VERBATIM (e.g. 'last quarter', 'this year', "
     "'last quarter vs current quarter').\n"
     "- If the message is already self-contained, return it essentially unchanged.\n"
-    "Output ONLY the rewritten question — no preamble, no quotes, no explanation."
+    "\n"
+    "ANALYSIS TYPE — classify the rewritten question into EXACTLY ONE of: "
+    "overview, trend, breakdown, comparison, contribution, driver, outlier, "
+    "correlation, lookup, record_investigation.\n"
+    "- lookup: the question NAMES a specific record id (e.g. INC0353896, "
+    "CHG0012345, PRB…, RITM…) — not a metric at all.\n"
+    "- overview: a BROAD 'what's happening in <module>' question with no single "
+    "named KPI ('how's availability doing', 'give me an overview of incidents "
+    "for APAC').\n"
+    "- trend: a question about ONE governed KPI's value — a single point/window "
+    "('what was MTTR last month', 'NPS this quarter', 'incidents YTD'), a true "
+    "over-time series ('MTTR trend', 'incidents month over month', 'is it "
+    "increasing'), or a PERIOD-vs-PERIOD comparison ('last quarter vs this "
+    "quarter'). No breakdown dimension, no named record id, no request to "
+    "see/list rows.\n"
+    "- breakdown: ONE governed KPI split by one or more DIMENSIONS with no "
+    "time-series intent ('MTTR by application', 'incidents by region and "
+    "priority').\n"
+    "- comparison: explicitly comparing TWO SEGMENTS/VALUES of the SAME "
+    "dimension in one window ('MTTR for PBNA vs CGF', 'compare team A and team "
+    "B'). A period-vs-period comparison is `trend`, not this — the two sides "
+    "there are time windows, not segments of a dimension.\n"
+    "- contribution: which dimension VALUES are responsible for a change "
+    "('which applications drove the increase', 'what contributed to the "
+    "rise').\n"
+    "- driver: WHY a metric changed, with no dimension named ('why did "
+    "availability drop', 'what caused the SLA miss') — broader than "
+    "contribution, may span several dimensions.\n"
+    "- outlier: which dimension values are ABNORMAL/unusual right now, not "
+    "about a change over time ('which applications have abnormal cost', 'any "
+    "vendor spend anomalies').\n"
+    "- correlation: whether TWO DIFFERENT metrics/entities move together ('are "
+    "changes causing more incidents', 'does X correlate with Y').\n"
+    "- record_investigation: the user wants to SEE/LIST the underlying "
+    "records/rows, not a number ('show all P1 incidents', 'list the major "
+    "incidents last month', 'detailed report of the outages last month', "
+    "'more information on these incidents').\n"
+    "If genuinely torn between two types, prefer the earlier one in this list "
+    "that plausibly fits — never invent an 11th type.\n"
+    "\n"
+    'OUTPUT: respond with ONLY this JSON object — no markdown fences, no prose, '
+    'no extra keys: {"question": "<the rewritten, self-contained question>", '
+    '"analysis_type": "<one of the types above>"}'
 )
 
 # Agent identifiers used to namespace persisted state per request_uuid.
@@ -565,9 +570,12 @@ def _group_labels(rows: list) -> list[str]:
     return out[:_MAX_IDS]
 
 
-def _turn_context(question: str, tool_outputs: list, answer: str | None) -> dict | None:
+def _turn_context(question: str, tool_outputs: list, answer: str | None,
+                  analysis_type: str | None = None) -> dict | None:
     """Compact, machine-readable record of this turn's data access (or None)."""
     ctx: dict = {"question": question}
+    if analysis_type:
+        ctx["analysis_type"] = analysis_type
     if answer:
         ctx["answer"] = answer[:1200]
     entries = []
@@ -709,16 +717,45 @@ def save_agent_state(request_uuid: str, agent: AssistantAgent, agent_name: str) 
     task.add_done_callback(_log_task_result)
 
 
-async def _rephrase(message: TextMessage, request_uuid: str) -> tuple[str, AssistantAgent]:
-    """Rewrite a follow-up into a self-contained question using prior context.
+def _parse_rephrase_output(text: str, raw_fallback: str) -> tuple[str, str | None]:
+    """Parse the rephrase agent's ``{"question", "analysis_type"}`` envelope.
+
+    Defensive by design: a model that wraps the JSON in prose/markdown fences,
+    or drifts back to bare text, still yields a usable question — just with
+    ``analysis_type=None``, which the analyst falls back to inferring itself
+    (today's behavior), rather than failing the turn."""
+    text = (text or "").strip()
+    if not text:
+        return raw_fallback, None
+    candidate = text
+    if not candidate.startswith("{"):
+        m = re.search(r"\{.*\}", candidate, re.DOTALL)
+        candidate = m.group(0) if m else candidate
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError:
+        return text, None
+    question = (obj.get("question") or "").strip() or raw_fallback
+    analysis_type = obj.get("analysis_type")
+    if analysis_type not in _ANALYSIS_TYPES:
+        analysis_type = None
+    return question, analysis_type
+
+
+async def _rephrase(message: TextMessage,
+                    request_uuid: str) -> tuple[str, str | None, AssistantAgent]:
+    """Rewrite a follow-up into a self-contained question using prior context,
+    and classify it into one of ``_ANALYSIS_TYPES``.
 
     The previous turn's :func:`_turn_context` (what was queried, with which filters
     and window, and which records came back) is attached to the message as a
     ``<last_result>`` block, so a follow-up like "details for those" is rewritten
     against facts rather than against the prose summary alone.
 
-    Returns the rephrased question and the (state-loaded) rephrase agent so the
-    caller can append the answer summary before persisting its state.
+    Returns (question, analysis_type, agent) — analysis_type is None if the model's
+    response couldn't be parsed as the expected JSON envelope, letting the analyst
+    fall back to inferring it itself. Returns the (state-loaded) rephrase agent so
+    the caller can append the answer summary before persisting its state.
     """
     raw = message.content
     last = await get_state_from_redis(request_uuid, agent_name=TURN_CONTEXT_KEY)
@@ -731,7 +768,8 @@ async def _rephrase(message: TextMessage, request_uuid: str) -> tuple[str, Assis
     agent = await get_agent(
         name=REPHRASE_AGENT,
         system_message=_with_last_result(_REPHRASE_SYSTEM, last),
-        description="Rewrites follow-up messages into self-contained KPI questions.",
+        description="Rewrites follow-up messages into self-contained KPI questions "
+                    "and classifies them into an analysis type.",
         request_uuid=request_uuid,
         agent_name=REPHRASE_AGENT,
         load_state=True,
@@ -739,11 +777,12 @@ async def _rephrase(message: TextMessage, request_uuid: str) -> tuple[str, Assis
     try:
         resp = await agent.on_messages(
             messages=[message], cancellation_token=CancellationToken())
-        rewritten = (getattr(resp.chat_message, "content", "") or "").strip()
+        content = (getattr(resp.chat_message, "content", "") or "").strip()
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("rephrase failed, using raw question: %s", exc)
-        return raw, agent
-    return (rewritten or raw), agent
+        return raw, None, agent
+    question, analysis_type = _parse_rephrase_output(content, raw)
+    return question, analysis_type, agent
 
 
 async def _remember_answer(agent: AssistantAgent, summary: str | None) -> None:
@@ -760,13 +799,13 @@ async def _remember_answer(agent: AssistantAgent, summary: str | None) -> None:
 
 
 async def _remember_turn(request_uuid: str, question: str, tool_outputs: list,
-                         answer: str | None) -> None:
+                         answer: str | None, analysis_type: str | None = None) -> None:
     """Persist this turn's data-access facts for the NEXT turn's rephrase.
 
     Kept separate from the agent state so it survives a rephrase-state failure,
     and stored even when the summarizer produced nothing (a turn with rows but no
     summary is exactly the one a follow-up needs to lean on)."""
-    ctx = _turn_context(question, tool_outputs, answer)
+    ctx = _turn_context(question, tool_outputs, answer, analysis_type)
     if not ctx:
         return
     try:
@@ -845,11 +884,20 @@ async def ask(req: AskRequest) -> StreamingResponse:
 
         # 1) Rephrase (stateful): follow-up -> self-contained question.
         ts = time.perf_counter()
-        rephrased, rephrase_agent = await _rephrase(user_msg, ruid)
+        rephrased, analysis_type, rephrase_agent = await _rephrase(user_msg, ruid)
         timings["rephrase_agent"] = round(time.perf_counter() - ts, 4)
         if rephrased != user_msg.content:
             log.info("ask: uuid=%s rephrased -> %r", ruid, rephrased)
-        yield _sse({"content": {"rephrased_question": rephrased}})
+        log.info("ask: uuid=%s analysis_type=%s", ruid, analysis_type)
+        yield _sse({"content": {"rephrased_question": rephrased,
+                                "analysis_type": analysis_type}})
+
+        # Prefix the analyst's task with the classified analysis type so its
+        # dispatch is deterministic instead of re-deriving intent from prose
+        # (see _ANALYST_SYSTEM). None (a rephrase parse miss) falls back to the
+        # analyst inferring it itself, same as before this existed.
+        analyst_task = (f"ANALYSIS_TYPE: {analysis_type}\n\n{rephrased}"
+                        if analysis_type else rephrased)
 
         # 2) Analyst (stateless): answer via MCP tools using on_messages.
         analyst = await get_agent(
@@ -862,7 +910,7 @@ async def ask(req: AskRequest) -> StreamingResponse:
         try:
             ts = time.perf_counter()
             response = await analyst.on_messages(
-                messages=[TextMessage(content=rephrased, source="user")],
+                messages=[TextMessage(content=analyst_task, source="user")],
                 cancellation_token=CancellationToken())
             timings["analyst_agent"] = round(time.perf_counter() - ts, 4)
 
@@ -910,7 +958,7 @@ async def ask(req: AskRequest) -> StreamingResponse:
         # 5) Record WHAT was queried/returned so the next turn's rephrase can
         #    resolve "details for those" against facts, not prose.
         await _remember_turn(ruid, rephrased, parsed["tool_outputs"],
-                             summary or parsed["answer"])
+                             summary or parsed["answer"], analysis_type)
 
         total = round(time.perf_counter() - t0, 4)
         yield _sse({"content": {"debug_query": {"execution_timings": {

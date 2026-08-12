@@ -27,8 +27,7 @@ Three kinds of measure, three different treatments:
 ``min``, ``max``           row cannot change a distinct count, a minimum or a maximum.
 ``sum``, ``avg``,          **Refused.** These have no exact single-pass correction over
 ``count(<column>)``        a fanned result — the honest fix is to not fan out at all
-                           (an EXISTS semi-join, which :mod:`cora_mcp.composer`
-                           already prefers) or to pre-aggregate the many-side.
+                           (an EXISTS semi-join) or to pre-aggregate the many-side.
                            Refusing keeps the invariant the rest of this codebase
                            holds: a constraint that cannot be honoured is reported,
                            never silently applied wrong.

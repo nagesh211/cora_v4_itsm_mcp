@@ -162,7 +162,7 @@ class _Builder:
 
         A literal name is tried first; failing that the word goes through
         :mod:`cora_mcp.column_resolver`, which is the same business vocabulary
-        ``run_kpi`` and ``compose_metric`` already honour. Without this step the
+        ``run_kpi`` already honours. Without this step the
         ad-hoc path was the only one that did not: "changes closed by sector and type"
         looked for physical columns named ``sector`` / ``type`` on
         ``itsm_change.tbl_change``, found neither (they are ``business_name`` and

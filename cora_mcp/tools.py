@@ -4,7 +4,8 @@
     ``describe_dataset(slug)`` walk the catalog: modules -> entities -> columns
     (grouped by role) / possible values / member tables / related KPIs.
   * **KPI actions** — ``search_kpis``, ``describe_kpi``, ``generate_query`` (SQL
-    only), ``run_kpi`` (SQL + execute).
+    only), ``run_kpi`` (SQL + execute; ``mode='records'`` is a raw-row listing
+    under the KPI's own curated WHERE scoping, not an aggregate).
   * **Insights** — ``overview_module`` rolls up every KPI in a module for one
     period/filter (value, delta, target, RAG status).
   * **Ad-hoc / schema-driven** — ``query_dataset`` (+ ``list_relationships``) and
@@ -328,6 +329,7 @@ def _register_core(mcp) -> List[str]:
         grain: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         comparison: bool = False,
+        limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Generate the SQL (+ bind params + inlined preview) for a KPI.
 
@@ -338,9 +340,15 @@ def _register_core(mcp) -> List[str]:
 
         mode: "stat" (scalar value; honours the config's CYTD/PYTD comparison
         windows), "series" (time buckets — set `grain` day/week/month/quarter),
-        or "table" (grouped by a dimension — set `dim`). `dim` accepts a single
-        field OR a list to break down by several dimensions at once, e.g.
-        dim=["region_name", "priority"].
+        "table" (grouped by a dimension — set `dim`; `dim` accepts a single field
+        OR a list to break down by several at once, e.g.
+        dim=["region_name", "priority"]), or "records" (a RAW-ROW LISTING, not an
+        aggregate — no `dim`/`comparison`; returns the KPI's own curated detail
+        columns, reusing the SAME business-rule WHERE scoping as its aggregate
+        modes, so "how many" and "which ones" can never describe different
+        populations. `limit` becomes the generated LIMIT clause. Fails with a
+        clear error rather than guessing if a SQL-mode KPI has no authored
+        `sql.detail_query` companion for this).
         `filters` is a mapping of field -> value or list of values.
         `comparison=True` also emits the previous (PYTD) window in stat mode.
         `as_of` (YYYY-MM-DD) forces a snapshot read.
@@ -352,6 +360,11 @@ def _register_core(mcp) -> List[str]:
         labelled with the user's own phrase, plus a `comparison_windows` block. Do
         NOT split it into two calls with one period each, and do NOT set
         `comparison=True` for it (that flag means the prior-YEAR window).
+
+        SEGMENT COMPARISON ("MTTR for PBNA vs CGF"): this is a `table` breakdown
+        restricted to exactly the named segments — mode='table',
+        dim=<the field>, filters={<field>: [valueA, valueB]} — not a period
+        comparison.
 
         TWO-METRIC COMPARISON GROUPED BY A DIMENSION ("incidents created vs
         closed last month by vendor") is a DIFFERENT shape from the above —
@@ -373,7 +386,8 @@ def _register_core(mcp) -> List[str]:
         try:
             out = await _generate_query(kpi, period=period, from_date=from_date,
                                         to_date=to_date, as_of=as_of, mode=mode, dim=dim,
-                                        grain=grain, filters=filters, comparison=comparison)
+                                        grain=grain, filters=filters, comparison=comparison,
+                                        limit=limit)
         except QueryError as exc:
             log.warning("generate_query rejected: %s", exc)
             return {"error": str(exc)}
@@ -398,12 +412,24 @@ def _register_core(mcp) -> List[str]:
         """Generate the SQL for a KPI AND execute it against its database,
         returning the actual result rows (not just SQL).
 
-        Same arguments as generate_query (see it for `mode`, `period`, `dim`,
-        `grain`, `filters`, `comparison`, `as_of`). Each result carries
-        `columns` and `rows` (plus `rowcount`), or an `error` string if the
-        query could not be executed (e.g. the database connection is not
-        configured). The generated SQL is still included for transparency.
-        Prefer this tool when the user wants an answer/number, not SQL.
+        Same arguments as generate_query (see it for `mode` — including
+        mode='records' for a raw-row listing — `period`, `dim`, `grain`,
+        `filters`, `comparison`, `as_of`). Each result carries `columns` and
+        `rows` (plus `rowcount`), or an `error` string if the query could not be
+        executed (e.g. the database connection is not configured). The generated
+        SQL is still included for transparency. Prefer this tool when the user
+        wants an answer/number (or, with mode='records', the underlying rows),
+        not SQL.
+
+        RECORD INVESTIGATION ("show all P1 incidents", "detailed report of the
+        outages last month"): call search_kpis to find a KPI covering that
+        population, then run_kpi(mode='records', filters=..., limit=...). This
+        returns raw rows under the SAME curated WHERE scoping as that KPI's own
+        count/trend/breakdown, so the "how many" and "which ones" answers can
+        never describe different populations — do not approximate this with a
+        differently-named but similar-sounding KPI, and do not fall back to
+        query_dataset unless this call reports no authored detail query for a
+        SQL-mode KPI, or no KPI covers the concept at all.
 
         PERIOD COMPARISONS: pass the whole phrase ("last quarter vs current
         quarter") as `period` in ONE call with mode='stat'. The result carries one
@@ -528,10 +554,11 @@ def _register_core(mcp) -> List[str]:
         an incident 'INC0353896', a change 'CHG0012345', a problem 'PRB...'), NOT a
         KPI/metric tool: a metric would only count it.
 
-        The id's prefix picks the entity and its human id column automatically (via
-        record_prefixes.json); pass `entity` to override for an id without a known
-        prefix. Returns the record's own detail columns plus, for each declared
-        relationship, the linked records' details.
+        The id's prefix picks the entity and its human id column automatically (from
+        the `id_prefix`/`id_column` declared on the entity in schema_v3.yaml); pass
+        `entity` to override for an id without a known prefix. Returns the record's
+        own detail columns plus, for each declared relationship, the linked records'
+        details.
 
         Args:
           record_id: the record identifier, e.g. 'INC0353896'.
@@ -617,113 +644,6 @@ def _register_core(mcp) -> List[str]:
         }
         out = _preflight(spec)
         _log_done("preflight", t0, f"-> ok={out.get('ok')}")
-        return out
-
-    def list_predicates(entity: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List the SCOPE PREDICATES available — the reusable qualifiers that restrict
-        WHICH records a metric counts (e.g. 'major', 'sla breached', 'emergency change',
-        'high risk', 'failed change', 'major release').
-
-        These are NOT metrics and NOT dimensions. A phrase like "sla breached" reads
-        like a KPI name but is really a WHERE clause, so passing it to search_kpis/
-        run_kpi gives a wrong or missing answer. Pass them to `compose_metric` instead.
-
-        Each entry gives the canonical `name`, the `synonyms` that resolve to it, the
-        `entity` it applies to, and the tables it can be evaluated on. Optionally filter
-        by entity ('incident', 'problem', 'change', 'release', 'service_request')."""
-        from cora_mcp.predicate_registry import get_registry as _preds
-        t0 = _log_call("list_predicates", entity=entity)
-        reg = _preds()
-        out = []
-        for name in reg.names():
-            p = reg.get(name)
-            if entity and p.entity != entity:
-                continue
-            out.append({
-                "name": p.name, "entity": p.entity, "synonyms": p.synonyms,
-                "grain_key": p.grain_key,
-                "tables": p.tables(),
-                "free_on": [b.table for b in p.bindings() if b.is_free],
-            })
-        _log_done("list_predicates", t0, f"-> {len(out)}")
-        return out
-
-    async def compose_metric(
-        measure: Optional[Dict[str, Any]] = None,
-        predicates: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,
-        dimensions: Optional[List[str]] = None,
-        select: Optional[List[str]] = None,
-        period: Optional[str] = None,
-        grain: Optional[str] = None,
-        entity: Optional[str] = None,
-        base: Optional[str] = None,
-        date_field: Optional[str] = None,
-        limit: int = 200,
-    ) -> Dict[str, Any]:
-        """Answer a question qualified by ONE OR MORE scope predicates — either as a
-        NUMBER or as the underlying RECORDS.
-
-        TWO SHAPES:
-          * AGGREGATE (default) — "how many <entity> that are BOTH <X> AND <Y>".
-          * DETAIL LISTING — pass `select`. Use this for "show me / list / details of
-            the <X> that are <Y>". Same predicate logic, but it returns raw rows with
-            no aggregation. Pass `select=[]` (an empty list) to get a sensible default
-            column set derived from the schema — do NOT invent column names.
-
-        Use `select` here rather than query_dataset for any qualified listing:
-        query_dataset would need a declared JOIN to reach the qualifier's table, and
-        this composes it as an EXISTS test instead, which needs no relationship.
-
-        USE THIS when the question carries a qualifier that is not one of a KPI's
-        dimensions: 'major', 'sla breached', 'emergency', 'high risk', 'failed',
-        'major release', 'closed incomplete' (see `list_predicates`). Those restrict
-        which records count; they are not metrics, so run_kpi cannot apply them and
-        search_kpis will mis-resolve them to a similarly-named KPI.
-
-        It picks the anchor table automatically: the table that satisfies the most
-        predicates itself (a table already scoped to the subset costs no filter at all)
-        while still carrying every requested filter and dimension. Any predicate that
-        lives elsewhere becomes an EXISTS test on the shared entity key — a row filter,
-        so one-to-many rows can never inflate the measure.
-
-        If a requested filter or predicate cannot be expressed anywhere, it REFUSES with
-        the reason instead of dropping it — a partially-applied question returns a
-        confidently wrong number.
-
-        Args:
-          measure: {"agg": count|count_distinct|sum|avg|min|max, "column": "<col>"};
-            defaults to count_distinct on the entity key, so an anchor holding several
-            rows per entity cannot inflate the count. Ignored when `select` is given.
-          predicates: scope predicate names/synonyms, ANDed together (from list_predicates).
-          filters: {dimension word -> value or [values]} e.g. {"business": "PBNA"}.
-          dimensions: breakdown columns/words, e.g. ["region"].
-          select: detail columns for a LISTING (mutually exclusive with measure/
-            dimensions). `[]` = pick a sensible default set from the schema.
-          period: natural-language window passed verbatim, e.g. "last 3 months".
-          grain: day|week|month|quarter for a time series.
-          entity: optional entity hint; inferred from the predicates when omitted.
-          base: force a specific anchor table (skips selection).
-          date_field: force which timestamp the period applies to (opened vs closed).
-
-        Returns the rows plus a `composition` block naming the anchor table, how each
-        predicate was satisfied (free / direct / semi_join) and any dropped breakdown —
-        report those notes so the user knows how the number was scoped.
-        """
-        from cora_mcp.composer import ComposeError, compose_and_run
-        t0 = _log_call("compose_metric", predicates=predicates, filters=filters,
-                       dimensions=dimensions, select=select, period=period,
-                       entity=entity, measure=measure, grain=grain)
-        try:
-            out = await compose_and_run(
-                measure=measure, predicates=predicates, filters=filters,
-                dimensions=dimensions, select=select, period=period, grain=grain,
-                entity=entity, base=base, date_field=date_field, limit=limit)
-        except (ComposeError, QueryError, BuilderError) as exc:
-            log.warning("compose_metric refused: %s", exc)
-            return {"error": str(exc)}
-        _log_done("compose_metric", t0,
-                  f"-> anchor={out.get('composition', {}).get('anchor_table')}")
         return out
 
     def list_relationships(module: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -829,9 +749,9 @@ def _register_core(mcp) -> List[str]:
 
     def resolve_filter_value(dataset: str, column: str, value: str) -> Dict[str, Any]:
         """Resolve a user-typed filter VALUE to what's actually stored for a
-        column — the same deterministic resolver run_kpi/compose_metric/
-        query_dataset already use internally (exact match -> curated synonym
-        -> fuzzy near-match -> reject).
+        column — the same deterministic resolver run_kpi/query_dataset already
+        use internally (exact match -> curated synonym -> fuzzy near-match ->
+        reject).
 
         Call this BEFORE inlining a literal into hand-written SQL
         (run_postgres_sql) whenever the value names a real-world thing (a
@@ -979,7 +899,7 @@ def _register_core(mcp) -> List[str]:
         rejects comes back as `error`, never a raw driver exception.
 
         USE THIS as the escape hatch for questions no governed KPI (run_kpi)
-        or the structured builder (query_dataset / compose_metric) can
+        or the structured builder (query_dataset) can
         express in ONE call -- most notably a "metric A vs metric B, grouped
         by dimension X" comparison (e.g. "incidents created vs closed last
         month by vendor"). Write ONE query with conditional aggregation
@@ -1100,8 +1020,6 @@ def _register_core(mcp) -> List[str]:
         (run_kpi, "run_kpi"),
         (get_record, "get_record"),
         (query_dataset, "query_dataset"),
-        (list_predicates, "list_predicates"),
-        (compose_metric, "compose_metric"),
         (plan_query, "plan_query"),
         (preflight, "preflight"),
         (list_relationships, "list_relationships"),

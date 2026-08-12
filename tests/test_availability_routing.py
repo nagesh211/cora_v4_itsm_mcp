@@ -1,37 +1,72 @@
-"""Regression tests for the availability-vs-incident routing bug.
+"""Regression tests for the availability-vs-incident routing bug, and for the
+run_kpi(mode='records') fix that replaced compose_metric/predicate_registry.
 
-"Give me Incident Ids which impacted availability percentage in last month" answered
-from ``itsm_incident.tbl_major_incidents`` — the major-incident list, a different
-population from the one the ``availability-percentage`` KPI measures. Three independent
-defects lined up, and each is pinned here:
+"Give me Incident Ids which impacted availability percentage in last month" once
+answered from ``itsm_incident.tbl_major_incidents`` — the major-incident list, a
+different population from the one the ``availability-percentage`` KPI measures.
+Two independent defects lined up, both pinned here:
 
-  1. ``record_prefixes.json`` declared no alias for the availability entity, so
+  1. the entity-alias registry declared no alias for the availability entity, so
      :func:`cora_mcp.adhoc._identify_entities` matched only "incident" and the ad-hoc
      planner could never reach ``itsm_availability`` at all.
   2. An alias pointing at a slug that does not exist is dropped *silently* (the
      function filters on ``loader.all_entities()``), which is how
      ``itsm_servicerequest`` — the real slug is ``itsm_service_request`` — disabled
      every service-request plan without anyone noticing.
-  3. ``predicates.json`` had no availability predicate, so the only qualifier the agent
-     could find for "incidents" was ``major_incident`` and it substituted it.
+
+A related, later bug: "outages last month" (aggregated) and "detailed report of
+the outages last month" resolved to two DIFFERENT populations, because the
+"detailed" phrasing routed to compose_metric with a bare `outage` predicate (no
+business-rule filters) instead of the governed KPI's own curated SQL
+(business_criticality/NON-IT/hypercare exclusions). compose_metric and
+predicate_registry are retired; run_kpi(mode='records') replaces that path by
+reusing the SAME curated WHERE as the KPI's own aggregate modes — proven below.
 """
 import os
 import sys
+
+import pytest
 
 _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from cora_mcp import composer  # noqa: E402
 from cora_mcp.adhoc import _identify_entities  # noqa: E402
-from cora_mcp.predicate_registry import PredicateRegistry  # noqa: E402
 from cora_mcp.record_lookup import RecordRegistry  # noqa: E402
 from cora_mcp.schema_loader import get_loader  # noqa: E402
+from cora_mcp import query_engine as qe  # noqa: E402
 
-_OUTAGES = "itsm_availability.tbl_tableau_outagesv4"
-_MAJOR = "itsm_incident.tbl_major_incidents"
 _THE_QUESTION = ("Show me the Incident IDs of incidents that impacted the "
                  "availability percentage during last month.")
+
+# A trimmed but representative stand-in for the real
+# availability-availability-outage-count KPI config: SQL-mode, with the same
+# curated business-rule scoping (most-critical only, no NON-IT, no hypercare)
+# repeated in both the aggregate base_query and the records-mode detail_query.
+_WHERE = ("outage_type = 'OUTAGE' AND business_criticality_value = "
+          "'1 - most critical' AND hypercare_project_system_id IS NULL")
+_AVAILABILITY_KPI = {
+    "name": "availability-availability-outage-count",
+    "title": "Availability Outage Count Widget",
+    "module": "availability",
+    "execution_mode": "SQL",
+    "source": {"dialect": "postgres"},
+    "primary_dataset": {"schema": "itsm_availability", "table": "tbl_tableau_outagesv4"},
+    "fields": {},
+    "filters": {"allowed": []},
+    "sql": {
+        "base_query": (
+            "select count(distinct incident_id) as v "
+            "from itsm_availability.tbl_tableau_outagesv4 a "
+            "where the_date_time between '{from_date}' and '{to_date}' "
+            "and " + _WHERE + " {filters}"),
+        "detail_query": (
+            "select a.incident_id, a.assignment_group_name "
+            "from itsm_availability.tbl_tableau_outagesv4 a "
+            "where the_date_time between '{from_date}' and '{to_date}' "
+            "and " + _WHERE + " {filters}"),
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -43,9 +78,6 @@ def test_every_entity_alias_points_at_a_real_slug():
     valid = set(get_loader().entity_slugs())
     dangling = {alias: slug for alias, slug in RecordRegistry()._entity_aliases.items()
                 if slug not in valid}
-    # itsm_servicedesk has no entity in this deployment's schema; it stays declared for
-    # deployments that do ship one, so it is the one accepted exception.
-    dangling = {a: s for a, s in dangling.items() if s != "itsm_servicedesk"}
     assert not dangling, "entity_aliases point at non-existent slugs: %s" % dangling
 
 
@@ -66,60 +98,58 @@ def test_service_request_question_is_plannable():
 
 
 # ---------------------------------------------------------------------------
-# 3 — the predicate and the table it anchors on
+# 3 — run_kpi(mode='records') reuses the KPI's own curated WHERE
 # ---------------------------------------------------------------------------
-def test_availability_impacting_resolves_from_the_users_own_words():
-    reg = PredicateRegistry()
-    for phrase in ("impacted availability", "availability impacting",
-                   "impacted availability percentage", "caused downtime"):
-        hit = reg.resolve(phrase)
-        assert hit is not None and hit.name == "availability_impacting", phrase
+class _FakeCatalog:
+    def __init__(self, cfg):
+        self._cfg = cfg
+
+    async def get(self, name):
+        return self._cfg if name == self._cfg["name"] else None
+
+    async def search(self, query, limit=5, **kw):
+        return []
 
 
-def test_availability_impacting_scopes_to_the_kpis_own_population():
-    """outage_type='OUTAGE' alone is not enough: without it the table's service-day
-    rows (outage_type IS NULL) are counted as outages, and without the criticality
-    condition the listing is not the population the KPI measures."""
-    b = PredicateRegistry().get("availability_impacting").binding_for(_OUTAGES)
-    assert b is not None and not b.is_free
-    assert {(c["field"], tuple(c["values"])) for c in b.conditions} == {
-        ("outage_type", ("OUTAGE",)),
-        ("business_criticality_value", ("1 - most critical",)),
-    }
+@pytest.mark.asyncio
+async def test_records_mode_applies_the_same_curated_where_as_the_aggregate(monkeypatch):
+    """The bug itself, fixed: 'how many' (mode='stat') and 'which ones'
+    (mode='records') must scope to the SAME population — the criticality/NON-IT/
+    hypercare conditions appear in the records SQL exactly as in the aggregate."""
+    monkeypatch.setattr(qe, "get_catalog", lambda: _FakeCatalog(_AVAILABILITY_KPI))
+
+    agg = await qe.generate_query(
+        "availability-availability-outage-count",
+        from_date="2026-07-01", to_date="2026-07-31", mode="stat")
+    records = await qe.generate_query(
+        "availability-availability-outage-count",
+        from_date="2026-07-01", to_date="2026-07-31",
+        mode="records", limit=200)
+
+    agg_sql = agg["results"][0]["sql"]
+    rec_sql = records["results"][0]["sql"]
+    assert _WHERE in agg_sql
+    assert _WHERE in rec_sql, "records mode dropped the KPI's own business-rule scoping"
+    assert "group by" not in rec_sql.lower(), "records mode must not aggregate"
+    assert "limit 200" in rec_sql.lower()
 
 
-def test_generic_outage_predicate_does_not_inherit_the_criticality_scope():
-    """"How many outages last month" must not silently narrow to most-critical
-    services just because the availability KPI does."""
-    b = PredicateRegistry().get("outage").binding_for(_OUTAGES)
-    assert [c["field"] for c in b.conditions] == ["outage_type"]
+@pytest.mark.asyncio
+async def test_records_mode_fails_closed_without_an_authored_detail_query(monkeypatch):
+    """No generic fallback exists for a SQL-mode KPI's raw listing — unlike
+    compose_metric's predicate layer, which could re-derive (and get wrong) a
+    business-rule WHERE nobody actually authored for that shape."""
+    cfg = dict(_AVAILABILITY_KPI)
+    cfg["sql"] = {"base_query": _AVAILABILITY_KPI["sql"]["base_query"]}   # no detail_query
+    monkeypatch.setattr(qe, "get_catalog", lambda: _FakeCatalog(cfg))
+
+    with pytest.raises(qe.QueryError, match="no authored sql.detail_query"):
+        await qe.generate_query(cfg["name"], from_date="2026-07-01",
+                                to_date="2026-07-31", mode="records")
 
 
-def test_incident_ids_impacting_availability_anchor_on_outages_not_major_incidents():
-    """The bug itself, at the layer that chose the wrong table."""
-    plan = composer.plan(predicates=["availability_impacting"],
-                         select=["incident_id"], period="last month")
-    assert plan["anchor_table"] == _OUTAGES
-    assert plan["anchor_table"] != _MAJOR
-    assert plan["entity"] == "availability"
-    assert plan["shape"] == "listing"
-    assert plan["spec"]["drilldown"]["detail_columns"] == ["incident_id"]
-    assert plan["spec"]["date_field"] == "the_date"
-
-
-def test_availability_listing_declares_that_it_is_a_superset():
-    """The predicate cannot reproduce the KPI's hypercare / non-IT exclusions (no IS
-    NULL op, no subquery op). Presenting the listing as exact would be the same class
-    of quiet error as answering with the wrong table, so the caveat must reach the
-    caller — not sit unread in the binding's maintainer note."""
-    plan = composer.plan(predicates=["availability_impacting"], select=["incident_id"],
-                         period="last month")
-    caveats = [n for n in plan["notes"] if n.startswith("availability_impacting:")]
-    assert len(caveats) == 1, plan["notes"]
-    assert "superset" in caveats[0]
-
-
-def test_a_predicate_with_no_caveat_adds_no_note():
-    plan = composer.plan(predicates=["major_incident"], select=["incident_id"],
-                         period="last month")
-    assert not [n for n in plan["notes"] if n.startswith("major_incident:")]
+@pytest.mark.asyncio
+async def test_records_mode_rejects_dim_and_comparison(monkeypatch):
+    monkeypatch.setattr(qe, "get_catalog", lambda: _FakeCatalog(_AVAILABILITY_KPI))
+    with pytest.raises(qe.QueryError, match="doesn't take"):
+        await qe.generate_query(_AVAILABILITY_KPI["name"], mode="records", dim="priority")

@@ -46,6 +46,9 @@ modules:
       right_col: incident_system_id
   entities:
   - name: incident
+    id_prefix: INC
+    id_column: incident_id
+    aliases: [inc]
     tables:
     - name: itsm_incident.tbl_all_incidents
       description: Incident data for ITSM, including details of whether the incident is active or not, major incident or not, and details when it is created, opened, resolved, closed etc., and other related information related to where it is created like business name, region, service area, hierarchies and location details etc.
@@ -1010,6 +1013,7 @@ modules:
         canonical: region
         cross_join: cross join LATERAL unnest(region_name) AS s(region)
   - name: major_incidents
+    aliases: [mi, mim]
     tables:
     - name: itsm_incident.tbl_major_incidents
       description: Major incidents table containing a filtered set of incident records flagged as major, including lifecycle timestamps, business context, assignment details, categorization, and impact indicators.
@@ -1261,6 +1265,9 @@ modules:
         type: boolean
         role: dimension
   - name: problem
+    id_prefix: PRB
+    id_column: problem_id
+    aliases: [prb]
     tables:
     - name: itsm_problem.tbl_problem
       description: Problem data for ITSM, including details of whether the problem is active or not, major problem or not, and details when it is created, opened, resolved, closed etc., and other related information related to where it is created like business name, region, service area, hierarchies and location details etc.
@@ -1697,6 +1704,9 @@ modules:
         type: varchar
         role: dimension
   - name: change
+    id_prefix: CHG
+    id_column: change_id
+    aliases: [chg]
     tables:
     - name: itsm_change.tbl_change
       description: Change data for ITSM, including details of the change's status, lifecycle timestamps (created, opened, planned start and end, closed), business context, service area, hierarchies, configuration items, priority, risk analysis, and other related information such as vendor details and change type.
@@ -2180,6 +2190,9 @@ modules:
         - 3
         inner_join: slm.exception_info.status_id = slm.exception_status.status_ide
   - name: service_request
+    id_prefix: [RITM, REQ]
+    id_column: request_item_id
+    aliases: [ritm, req, sr]
     tables:
     - name: itsm_servicerequest.tbl_request_item
       description: Service Request data for ITSM, including details of the request's status, lifecycle timestamps (opened, closed, estimated delivery), business context, service area, hierarchies, configuration items, SLA details, and other related information such as vendor details and request type.
@@ -2607,6 +2620,7 @@ modules:
         type: varchar
         role: dimension
   - name: availability
+    aliases: [uptime, downtime, outage, outages, 'availability percentage']
     tables:
     - name: itsm_availability.tbl_tableau_outagesv4
       description: Outage data for Availability in ITSM, including details of the outage's status, lifecycle timestamps (start, end), business context, service area, hierarchies, configuration items, priority, and other related information such as vendor details and project information.
@@ -2965,6 +2979,8 @@ modules:
         type: timestamp
         role: timestamp
   - name: release
+    id_prefix: REL
+    id_column: release_number
     tables:
     - name: itsm_release.tbl_pepops_release_mgmt
       description: Release management table containing comprehensive information about software releases including lifecycle management, delivery details, business context, methodology, and closure information for tracking release success and performance metrics.

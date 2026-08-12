@@ -73,10 +73,11 @@ re-issuing the same query in a loop.
 - `get_record(record_id, entity=None, related=None, limit=50)` — fetch ONE specific
   record's own detail columns **and its linked records**, never a metric/count. Use
   it whenever the user names a concrete id (e.g. `INC0353896`, `CHG0012345`,
-  `PRB…`). The id's prefix picks the entity + human id column via
-  `record_prefixes.json` (extend that file — no code — for new record types; pass
-  `entity` to override). `related` defaults to every entity reachable in one
-  declared relationship hop (e.g. changes **and** problems for an incident); pass a
+  `PRB…`). The id's prefix picks the entity + human id column via the `id_prefix`/
+  `id_column` declared on that entity in `schema_v3.yaml` (add those fields — no
+  code — for new record types; pass `entity` to override). `related` defaults to
+  every entity reachable in one declared relationship hop (e.g. changes **and**
+  problems for an incident); pass a
   list like `["change","problem"]` to restrict, or `["none"]` for the record only.
   Detail columns are chosen deterministically from the schema (human identifiers +
   key dimensions + timestamps of the queried table, capped), so they track the
