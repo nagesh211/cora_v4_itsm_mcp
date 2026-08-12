@@ -43,6 +43,7 @@ from cora_mcp.query_engine import (
 from cora_mcp.relationships import get_graph
 from cora_mcp.schema_loader import get_loader
 from cora_mcp.sql_builder import BuilderError
+from cora_mcp import sql_alias
 
 log = get_logger(__name__)
 
@@ -405,6 +406,10 @@ def _register_core(mcp) -> List[str]:
         configured). The generated SQL is still included for transparency.
         Prefer this tool when the user wants an answer/number, not SQL.
 
+        `citations` names the KPI config, dataset (schema.table), connection
+        and owning team the numbers came from — cite it (e.g. "Source: itsm_availability.tbl_tableau_outagesv4, owned by Availability Management")
+        when presenting the answer, don't just report the number.
+
         PERIOD COMPARISONS: pass the whole phrase ("last quarter vs current
         quarter") as `period` in ONE call with mode='stat'. The result carries one
         window per side (`comparison_side`: previous/current) and, for stat mode, a
@@ -490,6 +495,9 @@ def _register_core(mcp) -> List[str]:
           drilldown: {"detail_columns": [...], "entity_filter": {"field","op","values"}}
             to return detail/reason rows for a specific record.
           limit: max rows (default 200, hard cap 5000).
+
+        `citations` names the table(s) (and, when `metric` anchors the query, the
+        owning KPI config/team) the rows came from — cite it in the answer.
         """
         t0 = _log_call("query_dataset", base=base, metric=metric, select=select,
                        dimensions=dimensions, filters=filters, period=period,
@@ -773,7 +781,12 @@ def _register_core(mcp) -> List[str]:
         dimension (on top of its overall value); KPIs that can't be grouped by it
         record `dropped_dim`. Do NOT call this then improvise per-KPI run_kpi
         breakdowns — one overview_module call with `dim` covers the whole module.
-        For a single metric use run_kpi instead."""
+        For a single metric use run_kpi instead.
+
+        Each metric carries its own `citations` (KPI config, dataset, owner);
+        a deduped top-level `citations` also rolls up every dataset touched by
+        the module. Cite the relevant dataset/owner when reporting a number,
+        not just the value."""
         t0 = _log_call("overview_module", module=module, period=period,
                        filters=filters, dim=dim, limit_kpis=limit_kpis)
         try:
@@ -1038,6 +1051,10 @@ def _register_core(mcp) -> List[str]:
             checked for presence in the GROUP BY, same as generate_sql.
           filters: optional filter words you intended to apply -- checked for
             presence in WHERE/JOIN ON, same as generate_sql.
+
+        `citations` lists the table(s) parsed out of your own FROM/JOIN
+        clauses (best-effort -- there's no governed KPI config to cite here)
+        -- cite them in the answer same as any other tool's result.
         """
         t0 = _log_call("run_postgres_sql", sql=sql, limit=limit)
         from cora_mcp import sql_guard, db as _db
@@ -1078,6 +1095,8 @@ def _register_core(mcp) -> List[str]:
                                                           filters or [], "postgres"))
                 except Exception:
                     retry_out.update(presence)
+                retry_out["citations"] = [{"dataset": t, "connection": None, "dialect": "postgres"}
+                                          for t in sql_alias.referenced_tables(retried_sql)]
                 _log_done("run_postgres_sql", t0,
                           f"-> auto-corrected, {retry_out.get('rowcount')} row(s)")
                 return retry_out
@@ -1085,6 +1104,8 @@ def _register_core(mcp) -> List[str]:
                      "hints": fix.get("hints", [])}
         out["sql"] = checked_sql
         out.update(presence)
+        out["citations"] = [{"dataset": t, "connection": None, "dialect": "postgres"}
+                            for t in sql_alias.referenced_tables(checked_sql)]
         _log_done("run_postgres_sql", t0, f"-> {out.get('rowcount')} row(s)")
         return out
 

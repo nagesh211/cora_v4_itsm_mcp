@@ -51,6 +51,28 @@ import gen_query as gq  # noqa: E402  (path set up above)
 _MODES = ("stat", "series", "table")
 
 
+def _kpi_citation(config: Dict[str, Any], kpi: Optional[str] = None) -> Dict[str, Any]:
+    """Build a single citation entry describing the data source backing a KPI
+    config, so answers can say where a number came from instead of just what
+    it is."""
+    source = config.get("source") or {}
+    primary = config.get("primary_dataset") or {}
+    governance = config.get("governance") or {}
+    schema = primary.get("schema") or source.get("schema")
+    table = primary.get("table") or primary.get("name")
+    dataset = f"{schema}.{table}" if schema and table else (table or schema)
+    return {
+        "kpi": kpi or config.get("name"),
+        "title": config.get("title"),
+        "module": config.get("module"),
+        "dataset": dataset,
+        "connection": source.get("connection"),
+        "dialect": source.get("dialect"),
+        "owner": governance.get("owner"),
+        "updated_at": governance.get("updated_at"),
+    }
+
+
 class QueryError(ValueError):
     """Raised for bad requests (unknown KPI, missing dimension, bad mode)."""
 
@@ -751,6 +773,7 @@ async def generate_query(
         "resolved_from_phrase": resolved_from_phrase,
         "comparison": comparison,
         "results": results,
+        "citations": [_kpi_citation(config, kpi)],
     }
     if dimension_note:                        # a requested breakdown couldn't be honoured
         out["dropped_dim"] = dim
@@ -1008,6 +1031,7 @@ async def module_overview(
         entry: Dict[str, Any] = {
             "kpi": name, "title": cfg.get("title"), "unit": cfg.get("unit"),
             "applied_filters": applied or None, "dropped_filters": dropped or None,
+            "citations": [_kpi_citation(cfg, name)],
         }
         try:
             out = await run_query(name, period=period, filters=applied or None,
@@ -1149,6 +1173,13 @@ async def module_overview(
              module, code, len(metrics), requested or None)
     known = await module_registry.get_modules()
     info = known.get(code)
+    seen_kpis = set()
+    citations: List[Dict[str, Any]] = []
+    for m in metrics:
+        for c in m.get("citations") or []:
+            if c.get("kpi") not in seen_kpis:
+                seen_kpis.add(c.get("kpi"))
+                citations.append(c)
     return {
         "module": code,
         "module_label": info.label if info else code,
@@ -1156,6 +1187,7 @@ async def module_overview(
         "requested_filters": requested or None,
         "kpi_count": len(metrics),
         "metrics": metrics,
+        "citations": citations,
     }
 
 
@@ -1205,6 +1237,13 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
             spec.date_field = (cfg.get("time") or {}).get("column")
 
     built = sql_builder.build(spec)
+    citations: List[Dict[str, Any]] = []
+    if spec.metric:
+        citations.append(_kpi_citation(cfg, spec.metric))
+    else:
+        tables = [built.base_table, *(built.joined_tables or [])]
+        citations = [{"dataset": t, "connection": connection, "dialect": dialect}
+                     for t in tables if t]
     result: Dict[str, Any] = {
         "base_table": built.base_table,
         "joined_tables": built.joined_tables,
@@ -1212,6 +1251,7 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
         "sql": built.sql,
         "params": [_jsonable(p) for p in built.params],
         "preview": gq.inline_preview(built.sql, built.params),
+        "citations": citations,
     }
     if built.implicit_grain:
         # A comparison period grouped the rows by period even though the caller

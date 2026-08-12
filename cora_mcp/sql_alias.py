@@ -56,6 +56,21 @@ def alias_bindings(sql_text: str) -> List[Tuple[str, str]]:
     return out
 
 
+_TABLE_RE = re.compile(r"\b(?:from|join)\s+([a-z_][\w]*\.[a-z_][\w]*)", re.IGNORECASE)
+
+
+def referenced_tables(sql_text: str) -> List[str]:
+    """Distinct ``schema.table`` names in every ``FROM``/``JOIN`` clause, in
+    first-seen order — best-effort attribution for hand-written SQL that
+    carries no KPI config to cite (e.g. ``run_postgres_sql``). Unlike
+    :func:`alias_bindings` this doesn't require (or capture) an alias, so it
+    also catches unaliased single-table queries."""
+    seen: Dict[str, None] = {}
+    for m in _TABLE_RE.finditer(sql_text or ""):
+        seen.setdefault(m.group(1).lower(), None)
+    return list(seen)
+
+
 def _primary_fqn(config: dict) -> Optional[str]:
     pd = config.get("primary_dataset") or {}
     schema = pd.get("schema") or (config.get("source") or {}).get("schema")
