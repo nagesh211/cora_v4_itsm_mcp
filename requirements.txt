@@ -1,5 +1,5 @@
 # --- CORA MCP server ---
-mcp[cli]>=1.2.0          # FastMCP + streamable-http transport
+mcp[cli]<2.0.0         # FastMCP + streamable-http transport
 pyyaml>=6.0
 ruamel.yaml>=0.18        # schema restructure (order/comment preserving)
 pydantic>=2.5
