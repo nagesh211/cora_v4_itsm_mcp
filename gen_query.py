@@ -157,6 +157,11 @@ def _is_text_sql_type(t):
     return bool(t) and any(k in str(t).lower() for k in _TEXT_SQL_TYPES)
 
 
+def _is_array_sql_type(t):
+    """True for a schema-declared array type, e.g. ``"text []"``/``"text[]"``."""
+    return bool(t) and re.search(r"\[\s*\]", str(t)) is not None
+
+
 def _load_schema_types():
     """Index every column's declared SQL type from schema_v3.yaml, keyed by the
     table's fully-qualified name (e.g. 'itsm_incident.tbl_all_incidents'). Best
@@ -558,16 +563,37 @@ def _sql_dimension_chain(root, ctes, schema, table):
         node = child
 
 
-def _apply_dimension_chain(chain, base_alias, cols, grp_names):
+def _apply_dimension_chain(chain, base_alias, cols, grp_names, is_array=None):
     """Mutate every SELECT in ``chain`` (outer -> inner, as returned by
     ``_sql_dimension_chain``) in place: project the raw dimension column(s)
     at the innermost (table-owning) level, thread ``grp``/``grp2``/… back up
     through every wrapping level, and add them to the GROUP BY of every level
-    that is itself an aggregation point (there can be more than one)."""
+    that is itself an aggregation point (there can be more than one).
+
+    Each ``col`` is either bare (qualify with the primary table's own
+    ``base_alias``) or already ``<alias>.<column>`` — the latter is how
+    ``sql_alias.qualify_filter_columns`` marks a dimension whose column
+    actually lives on a DIFFERENT table the query joins in (e.g. a "sector"
+    dimension backed by a joined lookup table, not the primary table this
+    chain was walked to find). Re-qualifying that case with ``base_alias``
+    would silently point at the wrong table and Postgres would reject it as
+    an undefined column, so an already-qualified column is used verbatim.
+
+    ``is_array`` (parallel to ``cols``/``grp_names``, all ``False`` if
+    omitted) marks a schema-declared array column (e.g. ``business_name``
+    text []) — projected via ``CROSS JOIN LATERAL unnest(...)`` at this same
+    innermost level instead of selected raw, so it groups per ELEMENT (one row
+    per sector) rather than per distinct combination of elements."""
+    is_array = is_array if is_array is not None else [False] * len(cols)
     s_table_idx = len(chain) - 1
     s_table_sel, _ = chain[s_table_idx]
-    for col, grp in zip(cols, grp_names):
-        expr = sqlglot.parse_one("SELECT %s.%s AS %s" % (base_alias, col, grp),
+    for col, grp, arr in zip(cols, grp_names, is_array):
+        col_expr = col if "." in col else "%s.%s" % (base_alias, col)
+        if arr:
+            u = "u_%s" % grp
+            s_table_sel.append("joins", _sql_lateral_unnest_join(col_expr, u, grp))
+            col_expr = "%s.%s" % (u, grp)
+        expr = sqlglot.parse_one("SELECT %s AS %s" % (col_expr, grp),
                                  read="postgres").expressions[0]
         s_table_sel.append("expressions", expr)
     if _needs_group_by(s_table_sel):
@@ -718,7 +744,7 @@ def _sql_two_branch_ratio(select_node, ctes):
 
 
 def _pushdown_two_branch(select_node, two, ctes, config, dim_list, fields, schema, table,
-                         grp_names, cols, keyed):
+                         grp_names, cols, keyed, is_array=None):
     """Shared rewrite for BOTH two-branch shapes (``_sql_two_branch_ratio`` and
     ``_sql_two_branch_keyed`` — ``keyed`` picks which). Pushes the dimension
     into EACH branch independently, then combines them on it with a FULL
@@ -752,7 +778,12 @@ def _pushdown_two_branch(select_node, two, ctes, config, dim_list, fields, schem
             chain, base_alias, branch_schema, branch_table = \
                 _sql_dimension_chain_own_table(sel, ctes)
             if chain is not None:
-                missing = [c for c in cols if not _column_on_table(branch_schema, branch_table, c)]
+                # ``cols`` may already be ``<alias>.<column>`` (see
+                # ``_apply_dimension_chain``) — the schema catalog indexes
+                # bare column names, so strip any qualifier before checking.
+                missing = [c for c in cols
+                           if not _column_on_table(branch_schema, branch_table,
+                                                    c.rsplit(".", 1)[-1])]
                 if missing:
                     raise ValueError(
                         "table/dimension mode is not supported for SQL-mode KPI %r: "
@@ -768,7 +799,7 @@ def _pushdown_two_branch(select_node, two, ctes, config, dim_list, fields, schem
                 "%s query. Use its drilldown breakdown or a DSL KPI instead."
                 % (config.get("name"), table, alias,
                    "comparison" if keyed else "ratio"))
-        _apply_dimension_chain(chain, base_alias, cols, grp_names)
+        _apply_dimension_chain(chain, base_alias, cols, grp_names, is_array)
 
     if keyed:
         on_expr = join.args.get("on")
@@ -893,7 +924,7 @@ def _sql_two_scalar_subquery_ratio(select_node):
 
 
 def _sql_pushdown_scalar_subquery_ratio(select_node, ctes, config, dim_list, fields,
-                                        schema, table, grp_names, cols):
+                                        schema, table, grp_names, cols, is_array=None):
     """Handle the "twin scalar subqueries, no FROM at all" shape (see
     ``_sql_two_scalar_subquery_ratio``) — e.g. ``SELECT round(100.0 *
     (SELECT count(...) FROM t a WHERE ...) / nullif((SELECT count(...) FROM t
@@ -921,7 +952,7 @@ def _sql_pushdown_scalar_subquery_ratio(select_node, ctes, config, dim_list, fie
                 "its primary table %r isn't reachable in scalar subquery %d "
                 "of this ratio. Use its drilldown breakdown or a DSL KPI "
                 "instead." % (config.get("name"), table, i))
-        _apply_dimension_chain(chain, base_alias, cols, grp_names)
+        _apply_dimension_chain(chain, base_alias, cols, grp_names, is_array)
         measure_alias = "m%d" % i
         meas = inner.expressions[0]
         renamed = (meas.this if isinstance(meas, exp.Alias) else meas).as_(measure_alias)
@@ -984,11 +1015,20 @@ def _sql_pushdown_group_by(sql, config, dim_list, fields):
                          "dimension pushdown: %s" % (config.get("name"), exc)) from exc
     ctes = _cte_map(tree)
     grp_names = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_list))]
-    cols = [fields[d]["column"].rsplit(".", 1)[-1] for d in dim_list]
+    # Kept as declared (bare, or already ``<alias>.<column>`` — see
+    # ``_apply_dimension_chain``), NOT stripped to a bare name: a dimension
+    # qualified by ``sql_alias.qualify_filter_columns`` against a joined
+    # (non-primary) table must keep that alias, or the pushdown below would
+    # re-qualify it against the primary table's own alias instead.
+    cols = [fields[d]["column"] for d in dim_list]
+    # A dim whose schema-declared type is an array (e.g. business_name text [])
+    # is unnested at the table level instead of grouped on raw -- same
+    # reasoning as the flat-query path (_sql_inject_group_by/_sql_widen_group_by).
+    is_array = [_is_array_sql_type(_column_type(config, d, fields)) for d in dim_list]
 
     if _sql_two_scalar_subquery_ratio(tree) is not None:
         _sql_pushdown_scalar_subquery_ratio(tree, ctes, config, dim_list, fields,
-                                            schema, table, grp_names, cols)
+                                            schema, table, grp_names, cols, is_array)
         return tree.sql(dialect="postgres")
 
     wrap = []
@@ -996,14 +1036,14 @@ def _sql_pushdown_group_by(sql, config, dim_list, fields):
     while True:
         chain, base_alias = _sql_dimension_chain(node, ctes, schema, table)
         if chain is not None:
-            _apply_dimension_chain(chain, base_alias, cols, grp_names)
+            _apply_dimension_chain(chain, base_alias, cols, grp_names, is_array)
             _thread_up(wrap, grp_names)
             return tree.sql(dialect="postgres")
 
         wchain, union_node, arm_chains = _sql_dimension_chain_to_union(node, ctes, schema, table)
         if wchain is not None:
             for arm_chain, arm_base_alias in arm_chains:
-                _apply_dimension_chain(arm_chain, arm_base_alias, cols, grp_names)
+                _apply_dimension_chain(arm_chain, arm_base_alias, cols, grp_names, is_array)
             _thread_up(wchain, grp_names)
             _thread_up(wrap, grp_names)
             return tree.sql(dialect="postgres")
@@ -1011,14 +1051,14 @@ def _sql_pushdown_group_by(sql, config, dim_list, fields):
         two_k = _sql_two_branch_keyed(node, ctes)
         if two_k is not None:
             _pushdown_two_branch(node, two_k, ctes, config, dim_list, fields, schema, table,
-                                 grp_names, cols, keyed=True)
+                                 grp_names, cols, keyed=True, is_array=is_array)
             _thread_up(wrap, grp_names)
             return tree.sql(dialect="postgres")
 
         two_r = _sql_two_branch_ratio(node, ctes)
         if two_r is not None:
             _pushdown_two_branch(node, two_r, ctes, config, dim_list, fields, schema, table,
-                                 grp_names, cols, keyed=False)
+                                 grp_names, cols, keyed=False, is_array=is_array)
             _thread_up(wrap, grp_names)
             return tree.sql(dialect="postgres")
 
@@ -1032,6 +1072,34 @@ def _sql_pushdown_group_by(sql, config, dim_list, fields):
                 % config.get("name"))
         wrap.append((node, child_alias))
         node = child
+
+
+def _sql_lateral_unnest_join(col_expr, unnest_alias, out_col):
+    """A ``CROSS JOIN LATERAL unnest(col_expr) AS unnest_alias(out_col)`` join
+    node, for splicing an array dimension's explode into a sqlglot tree via
+    ``tree.append("joins", ...)``."""
+    stub = sqlglot.parse_one(
+        "SELECT 1 FROM _t CROSS JOIN LATERAL unnest(%s) AS %s(%s)"
+        % (col_expr, unnest_alias, out_col), read="postgres")
+    return stub.args["joins"][0]
+
+
+def _sql_insert_after_from(sql, insertion):
+    """Insert ``insertion`` right after the query's FROM/JOIN chain — i.e.
+    right before its outer-scope WHERE/GROUP BY/ORDER BY/LIMIT — or at the very
+    end if none of those appear at paren depth 0. Used to splice a ``CROSS JOIN
+    LATERAL unnest(...)`` in after text-level (non-sqlglot) rewrites."""
+    positions = []
+    for kw in (r"\bwhere\b", r"\bgroup\s+by\b", r"\border\s+by\b", r"\blimit\b"):
+        for m in re.finditer(kw, sql, re.IGNORECASE):
+            depth = sql.count("(", 0, m.start()) - sql.count(")", 0, m.start())
+            if depth == 0:
+                positions.append(m.start())
+                break
+    if positions:
+        pos = min(positions)
+        return sql[:pos] + insertion + " " + sql[pos:]
+    return sql + " " + insertion
 
 
 def _sql_widen_group_by(sql, config, dim_list, fields):
@@ -1082,6 +1150,14 @@ def _sql_widen_group_by(sql, config, dim_list, fields):
         col = fields[d]["column"]
         col_expr = col if "." in col else "%s.%s" % (base_alias, col)
         alias = "grp" if i == 1 else "grp%d" % i
+        # An array-typed dimension (e.g. business_name text []) is exploded via
+        # a LATERAL unnest join, one element per row, instead of grouping on the
+        # raw array — the latter buckets by distinct COMBINATIONS of elements
+        # (e.g. "AMESA, CGF") rather than by each sector on its own.
+        if _is_array_sql_type(_column_type(config, d, fields)):
+            u = "u%d" % i
+            tree.append("joins", _sql_lateral_unnest_join(col_expr, u, alias))
+            col_expr = "%s.%s" % (u, alias)
         expr = sqlglot.parse_one("SELECT %s AS %s" % (col_expr, alias),
                                  read="postgres").expressions[0]
         tree.append("expressions", expr)
@@ -1120,13 +1196,22 @@ def _sql_inject_group_by(sql, config, dim_list, fields):
         raise ValueError(
             "SQL-mode KPI %r base_query doesn't start with SELECT; cannot inject "
             "a dimension GROUP BY." % config.get("name"))
-    sel_cols, group_idx = [], []
+    sel_cols, group_idx, lateral_joins = [], [], []
     for i, d in enumerate(dim_list, start=1):
         col_expr = fields[d]["column"]          # already alias-qualified if needed
         alias = "grp" if i == 1 else "grp%d" % i
+        # Same array handling as _sql_widen_group_by: unnest instead of grouping
+        # on the raw array.
+        if _is_array_sql_type(_column_type(config, d, fields)):
+            u = "u%d" % i
+            lateral_joins.append(
+                "CROSS JOIN LATERAL unnest(%s) AS %s(%s)" % (col_expr, u, alias))
+            col_expr = "%s.%s" % (u, alias)
         sel_cols.append("%s AS %s" % (col_expr, alias))
         group_idx.append(str(i))
     sql = sql[:m.end()] + ", ".join(sel_cols) + ", " + sql[m.end():]
+    if lateral_joins:
+        sql = _sql_insert_after_from(sql, " ".join(lateral_joins))
     return sql + " GROUP BY " + ", ".join(group_idx)
 
 
@@ -1249,6 +1334,23 @@ def dsl_build(config, payload=None):
         return resolve_field(field, aliases, fields, base)
 
     sel, group, where, params = [], [], [], []
+    _unnest_n = [0]
+
+    def project_dim(field, out_alias):
+        """(select_expr, group_expr) for one dimension. A field whose schema-
+        declared type is an array (e.g. ``business_name`` / text []) is exploded
+        via ``CROSS JOIN LATERAL unnest(...)`` so each element groups on its own
+        row, instead of grouping on the raw array (which produced one bucket per
+        distinct COMBINATION of elements, e.g. "AMESA, CGF"). Non-array columns
+        are projected directly, unchanged."""
+        c = col(field)
+        if _is_array_sql_type(_column_type(config, field, fields)):
+            u = "u%d" % _unnest_n[0]
+            _unnest_n[0] += 1
+            joins_sql.append("CROSS JOIN LATERAL unnest(%s) AS %s(%s)" % (c, u, out_alias))
+            ref = "%s.%s" % (u, out_alias)
+            return "%s AS %s" % (ref, out_alias), ref
+        return "%s AS %s" % (c, out_alias), c
 
     # ── SELECT ───────────────────────────────────────────────────────────
     dims = payload.get("group_by_dim")
@@ -1257,13 +1359,15 @@ def dsl_build(config, payload=None):
         # first dim keeps the historical `grp` alias; extras get grp2, grp3, …
         dim_list = list(dims) if isinstance(dims, (list, tuple)) else [dims]
         for i, dname in enumerate(dim_list):
-            c = col(dname)
             alias = "grp" if i == 0 else "grp%d" % (i + 1)
-            sel.append("%s AS %s" % (c, alias)); group.append(c)
-    for g in dsl.get("group_by_fields", []) or []:
-        c = col(g["field"]); sel.append("%s AS %s" % (c, g["alias"])); group.append(c)
+            s, g = project_dim(dname, alias)
+            sel.append(s); group.append(g)
+    for gf in dsl.get("group_by_fields", []) or []:
+        s, g = project_dim(gf["field"], gf["alias"])
+        sel.append(s); group.append(g)
     for d in dsl.get("dimensions", []) or []:
-        c = col(d["field"]); sel.append("%s AS %s" % (c, d["alias"])); group.append(c)
+        s, g = project_dim(d["field"], d["alias"])
+        sel.append(s); group.append(g)
     tg = payload.get("time_group") or dsl.get("time_group")   # payload = series mode
     if tg:
         grain = (payload.get("filter_by") or {}).get("granularity") or tg["grain"]
