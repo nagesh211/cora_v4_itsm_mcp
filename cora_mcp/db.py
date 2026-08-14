@@ -241,8 +241,9 @@ async def _get_pool(dsn: str):
     pool = _pools.get(key)
     if pool is None:
         log.info("creating asyncpg pool for %s", _redact(dsn))
+        command_timeout = float(os.getenv("CORA_PG_COMMAND_TIMEOUT", "120"))
         pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=4,
-                                         command_timeout=30)
+                                         command_timeout=command_timeout)
         _pools[key] = pool
     return pool
 
