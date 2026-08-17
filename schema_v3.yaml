@@ -449,7 +449,8 @@ modules:
       - name: zip
         type: varchar
         role: dimension
-    - name: itsm.tbl_incident_company
+    - &id003
+      name: itsm.tbl_incident_company
       description: Incident company mapping table providing business (sector) context and organizational relationships for incidents to support sector-based reporting and analysis.
       columns:
       - name: incident_system_id
@@ -2181,7 +2182,8 @@ modules:
         inner_join: slm.exception_info.status_id = slm.exception_status.status_ide
   - name: service_request
     tables:
-    - name: itsm_servicerequest.tbl_request_item
+    - &id015
+      name: itsm_servicerequest.tbl_request_item
       description: Service Request data for ITSM, including details of the request's status, lifecycle timestamps (opened, closed, estimated delivery), business context, service area, hierarchies, configuration items, SLA details, and other related information such as vendor details and request type.
       time:
         field: open_date
@@ -2372,7 +2374,53 @@ modules:
       - name: title_text
         type: varchar
         role: dimension
-    - name: itsm_servicerequest.tbl_request_item_sector
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: system_id
+        type: varchar
+        role: identifier
+      - name: sc_catalogs
+        type: varchar
+        role: dimension
+      - name: active
+        type: varchar
+        role: dimension
+        possible_values:
+        - false
+        - true
+      - name: first_assignment_group_name
+        type: varchar
+        role: dimension
+      - name: first_task_system_id
+        type: varchar
+        role: identifier
+    - &id004
+      name: itsm_servicerequest.tbl_request_item_sector
       description: Service Request Sector data for ITSM, including details of the request item sector, such as business name, region, country, and other related information.
       time:
         field: dw_last_updt_dtm
@@ -2431,7 +2479,19 @@ modules:
       - name: sub_business_name_text
         type: text
         role: dimension
-    - name: itsm_servicerequest.tbl_sc_cat_item
+      - name: combined_business_name_text
+        type: varchar
+        role: dimension
+        possible_values:
+        - PGCS
+        - SODASTREAM
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+    - &id020
+      name: itsm_servicerequest.tbl_sc_cat_item
       description: Service catalog items metadata including ownership, automation level, classification, hierarchy, and status for request fulfillment.
       time:
         field: system_created_on
@@ -2529,7 +2589,8 @@ modules:
         possible_values:
         - Conversational
         - Non Conversational
-    - name: itsm_servicerequest.tbl_sc_req_item
+    - &id021
+      name: itsm_servicerequest.tbl_sc_req_item
       description: Service request items metadata including catalog item, delivery details, approvals, assignments, requester context, and audit timestamps.
       time:
         field: approval_set
@@ -2931,7 +2992,8 @@ modules:
       - name: title_text
         type: varchar
         role: dimension
-    - name: itsm.tbl_group_hierarchy
+    - &id002
+      name: itsm.tbl_group_hierarchy
       description: Lookup table mapping a support group to its service area and org hierarchy. Used to scope availability/outage measures to IT-owned support groups (service_area != 'NON-IT'), joined via group_system_id.
       columns:
       - name: group_system_id
@@ -4657,6 +4719,2505 @@ modules:
         type: text[]
         role: dimension
         canonical: sector
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+  - name: service_desk
+    description: Service desk call, chat, self-service, and quality metrics covering PepOps volume, FCR, ABN, ASA, CSAT and group/type reference data.
+    tables:
+    - &id005
+      name: itsm_servicedesk.tbl_happy_signals
+      description: Customer satisfaction signals table containing feedback scores, mood indicators, and business context for service desk interactions to measure customer happiness and NPS.
+      time:
+        field: system_created_on_date
+        type: date
+        grain: day
+      columns:
+      - name: system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: mood
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Negative
+        - Neutral
+        - Positive
+      - name: response_id
+        type: varchar
+        role: identifier
+      - name: closing_assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: varchar
+        role: dimension
+      - name: resolved_by_user_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: score
+        type: integer
+        role: measure
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        - 10
+      - name: number
+        type: varchar
+        role: dimension
+      - name: task_number
+        type: varchar
+        role: dimension
+      - name: record
+        type: varchar
+        role: dimension
+      - name: system_domain
+        type: json
+        role: dimension
+      - name: class_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Incident
+        - Requested Item
+      - name: table
+        type: varchar
+        role: dimension
+        possible_values:
+        - incident
+        - sc_req_item
+        - task
+      - name: timestamp
+        type: varchar
+        role: timestamp
+      - name: answered
+        type: varchar
+        role: timestamp
+      - name: related_user_name
+        type: varchar
+        role: dimension
+      - name: profile
+        type: varchar
+        role: dimension
+        possible_values:
+        - Doer
+        - Prioritiser
+        - Supported
+        - Trier
+      - name: system_modification_count
+        type: integer
+        role: measure
+        possible_values:
+        - 0
+        - 1
+        - 2
+        - 3
+      - name: system_tags
+        type: varchar
+        role: dimension
+        possible_values:
+        - FAQ0000238
+      - name: feedback_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: factors
+        type: varchar
+        role: dimension
+      - name: lost_work_time
+        type: integer
+        role: measure
+        deeper_insights: true
+      - name: system_created_on
+        type: varchar
+        role: timestamp
+      - name: system_created_on_date
+        type: date
+        role: timestamp
+      - name: system_created_by
+        type: varchar
+        role: dimension
+      - name: system_updated_on
+        type: timestamp
+        role: timestamp
+      - name: system_updated_on_date
+        type: date
+        role: timestamp
+      - name: system_updated_by
+        type: varchar
+        role: dimension
+      - name: score_category
+        type: text
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Detractor
+        - Neutral
+        - Promoter
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assigned_to
+        type: varchar
+        role: dimension
+      - name: sub_business_name_text
+        type: varchar
+        role: dimension
+      - name: region_name_text
+        type: varchar
+        role: dimension
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+    - *id002
+    - &id012
+      name: itsm_servicedesk.tbl_fcr
+      description: First Contact Resolution tracking table containing ticket resolution metrics, assignment patterns, and performance indicators for measuring service desk efficiency.
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: incident_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: ticket_id
+        type: varchar
+        role: identifier
+      - name: ticket_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - INC
+        - SR
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: created_date_time
+        type: timestamp
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+      - name: status_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED
+        - RESOLVED
+        - IN PROGRESS
+      - name: reassignment_count
+        type: integer
+        role: measure
+        deeper_insights: true
+      - name: contact_type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CHAT
+        - PHONE
+        - SELF-SERVICE
+      - name: assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: first_assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: resolved_seconds
+        type: numeric
+        role: measure
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: created_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: first_assignment
+        type: varchar
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+    - &id017
+      name: itsm_slm_data.slm_pepops_sd_csl_107_vw
+      description: Service Level Management quality scoring view containing audit results and quality metrics for call and chat interactions with detailed scoring information.
+      time:
+        field: audit_date
+        type: date
+        grain: day
+      columns:
+      - name: report_month
+        type: date
+        role: timestamp
+      - name: source
+        type: varchar
+        role: dimension
+        possible_values:
+        - D-Sat
+        - Customer Escalation
+        - Regular Audit
+      - name: account
+        type: varchar
+        role: dimension
+        possible_values:
+        - Pepsi
+      - name: auditor
+        type: varchar
+        role: dimension
+      - name: ticket_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Interaction
+        - Incident
+        - Change Request
+        - Service Request
+      - name: transaction_id
+        type: varchar
+        role: identifier
+      - name: track_name
+        type: varchar
+        role: dimension
+        possible_values:
+        - Service Desk
+      - name: scope
+        type: varchar
+        role: dimension
+      - name: acknowledgement
+        type: varchar
+        role: dimension
+        possible_values:
+        - Under Calibration
+        - Acknowledged
+        - Pending
+      - name: rid
+        type: varchar
+        role: identifier
+      - name: user_market
+        type: varchar
+        role: dimension
+      - name: modality
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Ticket/Chat
+        - Ticket
+        - Call
+        - Ticket/Call
+      - name: comments
+        type: varchar
+        role: dimension
+      - name: priority
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - P1
+        - P2
+        - P3
+        - P4
+        - P5
+      - name: language
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: score
+        type: numeric
+        role: measure
+        deeper_insights: true
+      - name: first_auditor_role
+        type: varchar
+        role: dimension
+        possible_values:
+        - SEG Quality
+      - name: service_lines
+        type: varchar
+        role: dimension
+        possible_values:
+        - USS
+      - name: user_country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: user_region
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_sctr_nm
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: audit_date
+        type: date
+        role: timestamp
+    - &id009
+      name: itsm_servicedesk.tbl_instac_call_chat
+      description: InstAC call and chat volume tracking table containing detailed metrics about call handling, response times, and abandonment rates for service desk operations.
+      time:
+        field: start_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: call_dw_id
+        type: varchar
+        role: identifier
+      - name: call_id
+        type: varchar
+        role: identifier
+      - name: sequence_number
+        type: varchar
+        role: dimension
+        possible_values:
+        - 1.0
+        - 2.0
+        - 3.0
+        - 4.0
+      - name: digital_download
+        type: varchar
+        role: dimension
+      - name: start_date_time
+        type: timestamp
+        role: timestamp
+      - name: end_date_time
+        type: timestamp
+        role: timestamp
+      - name: agent_skill_id
+        type: varchar
+        role: identifier
+      - name: agent_name_value
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: agent_time_value
+        type: varchar
+        role: dimension
+      - name: part_number
+        type: varchar
+        role: dimension
+      - name: agent_gpid_value
+        type: varchar
+        role: dimension
+      - name: call_type_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: queue_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: caller_value
+        type: varchar
+        role: dimension
+      - name: language_value
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: call_disposition_value
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - AGENTHANDLED
+        - ANS
+      - name: call_disposition_description
+        type: varchar
+        role: dimension
+      - name: call_offered_indicator
+        type: numeric
+        role: measure
+        deeper_insights: true
+        possible_values:
+        - 1.0
+      - name: answered_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+      - name: abandoned_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+      - name: answered_in_30_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+      - name: answered_out_30_indicator
+        type: varchar
+        role: dimension
+        possible_values:
+        - 0
+        - 1
+      - name: abandoned_in_30_indicator
+        type: varchar
+        role: dimension
+        possible_values:
+        - 0
+        - 1
+      - name: abandoned_out_30_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+      - name: type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CALL
+        - CHAT
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: start_date
+        type: date
+        role: timestamp
+      - name: end_date
+        type: date
+        role: timestamp
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: assignment_group
+        type: varchar
+        role: dimension
+        deeper_insights: true
+    - name: itsm_servicedesk.tbl_sn_intrctn_chat
+      description: ServiceNow interaction chat table containing detailed chat session information including agent assignments, timestamps, and business context for chat volume tracking.
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: varchar
+        role: identifier
+      - name: interaction_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: title_text
+        type: varchar
+        role: dimension
+      - name: group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+        possible_values:
+        - GLOBAL WORKPLACE SERVICES
+        - REGION I&O - EUROPE
+        - SECTOR I&O
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+        possible_values:
+        - SECTOR CTO - PGCS
+        - SECTOR I&O - AMESA
+        - SECTOR I&O - APAC
+        - SERVICE DESK &
+        - DIGITAL EXP SERVICES
+        - SERVICE DESK - EUROPE
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+        possible_values:
+        - SERVICE DESK - AMESA
+        - SERVICE DESK - APAC
+        - SERVICE DESK - NORTH AMERICA
+        - SERVICE DESK - PGCS
+      - name: hierarchy_4
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT APPLICABLE
+        - SECTOR I&O - LATAM - FIELD SUPPORT
+      - name: hierarchy_5
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT APPLICABLE
+        - SERVICE DESK - LATAM
+      - name: state
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED ABANDONED
+        - CLOSED COMPLETE
+        - WORK IN PROGRESS
+      - name: type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CHAT
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: close_date
+        type: date
+        role: timestamp
+      - name: agent_chat
+        type: varchar
+        role: dimension
+        possible_values:
+        - 'YES'
+      - name: virtual_agent
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 'NO'
+        - 'YES'
+      - name: assigned_to
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignee_gpid
+        type: varchar
+        role: identifier
+      - name: call_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - REQUEST
+        - STATUS CALL
+      - name: closed_by
+        type: varchar
+        role: dimension
+      - name: closed_by_gpid
+        type: varchar
+        role: identifier
+      - name: created_by
+        type: varchar
+        role: dimension
+      - name: created_by_gpid
+        type: varchar
+        role: identifier
+      - name: opened_by
+        type: varchar
+        role: dimension
+      - name: opened_by_gpid
+        type: varchar
+        role: identifier
+      - name: opened_for
+        type: varchar
+        role: dimension
+      - name: opened_for_gpid
+        type: varchar
+        role: identifier
+      - name: updated_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+        possible_values:
+        - NOT APPLICABLE
+        - PepsiCo Inc
+        - Turk Telecom
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+    - name: itsm_servicedesk.tbl_ssp_volume
+      description: Self-Service Portal volume tracking table containing metrics about self-service ticket creation, resolution times, and assignment patterns for measuring portal effectiveness.
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: system_id
+        type: varchar
+        role: identifier
+      - name: ticket_id
+        type: varchar
+        role: identifier
+      - name: ticket_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - INC
+        - SR
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: resolved_date_time
+        type: timestamp
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+      - name: status_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED
+        - RESOLVED
+        - CANCELED
+      - name: reassignment_count
+        type: integer
+        role: measure
+        deeper_insights: true
+      - name: contact_type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Self-Service
+        - SELF-SERVICE
+      - name: group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        alias:
+        - assignment_group
+        - work_group
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+      - name: resolved_seconds
+        type: bigint
+        role: measure
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: resolved_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: first_assignment
+        type: varchar
+        role: dimension
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: first_assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+    - *id003
+    - &id014
+      name: itsm_servicerequest.tbl_request_task
+      description: Service request task details table containing task-level information for service requests including SLA tracking, assignment details, and delivery estimates.
+      time:
+        field: open_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: request_item_system_id
+        type: varchar
+        role: identifier
+        foreign_key: itsm_servicerequest.tbl_request_item.request_item_system_id
+      - name: request_item_id
+        type: varchar
+        role: identifier
+      - name: catlog_item
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: request_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - GENERAL
+        - NOT PROVIDED
+        - STANDARD
+      - name: standard_ritm_service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: standard_ritm_owner
+        type: varchar
+        role: dimension
+      - name: request_task_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: request_task_id
+        type: varchar
+        role: identifier
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+      - name: title_text
+        type: varchar
+        role: dimension
+      - name: description_text
+        type: varchar
+        role: dimension
+      - name: status_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - OPEN
+        - PENDING APPROVAL
+        - WORK IN PROGRESS
+        - CLOSED
+        - PROCESS.OUTPUT_DATA
+        - PROCESS.SERVICE_NOW_
+      - name: assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+      - name: hierarchy_4
+        type: varchar
+        role: dimension
+      - name: hierarchy_5
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: estimated_delivery_date_time
+        type: timestamp
+        role: timestamp
+      - name: delivery_populated_date_time
+        type: timestamp
+        role: timestamp
+      - name: sla_name
+        type: varchar
+        role: dimension
+      - name: sla_type_value
+        type: varchar
+        role: dimension
+        possible_values:
+        - SLA
+        - OLA
+      - name: sla_start_date_time
+        type: varchar
+        role: timestamp
+      - name: sla_end_date_time
+        type: varchar
+        role: timestamp
+      - name: sla_breached_indicator
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+      - name: sla_duration_seconds
+        type: bigint
+        role: measure
+      - name: sla_duration_minutes
+        type: numeric
+        role: measure
+      - name: sla_duration_hours
+        type: numeric
+        role: measure
+      - name: sla_duration_days
+        type: numeric
+        role: measure
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: closed_date
+        type: date
+        role: timestamp
+      - name: estimated_delivery_date
+        type: date
+        role: timestamp
+      - name: delivery_populated_date
+        type: date
+        role: timestamp
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: reassignment_count
+        type: bigint
+        role: measure
+      - name: reopen_count
+        type: numeric
+        role: measure
+        possible_values:
+        - 1
+        - 2
+        - 3
+      - name: active_indicator
+        type: varchar
+        role: dimension
+        possible_values:
+        - '0'
+        - '1'
+        - 'null'
+    - &id016
+      name: itsm_servicerequest.tbl_metric_instance
+      description: Metric instance table containing performance metrics and measurement data for service requests with field-level tracking and business duration calculations.
+      time:
+        field: system_created_on
+        type: timestamp
+        grain: day
+      columns:
+      - name: id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: definition
+        type: varchar
+        role: dimension
+        possible_values:
+        - 1e77032a0fe5e300f0f5f68ce1050e03
+      - name: end
+        type: timestamp
+        role: timestamp
+      - name: system_created_on
+        type: timestamp
+        role: timestamp
+      - name: field
+        type: varchar
+        role: dimension
+        possible_values:
+        - assignment_group
+      - name: value
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: system_id
+        type: varchar
+        role: identifier
+      - name: system_mod_count
+        type: integer
+        role: measure
+        possible_values:
+        - 0
+        - 1
+      - name: business_duration
+        type: timestamp
+        role: timestamp
+      - name: system_updated_on
+        type: timestamp
+        role: timestamp
+      - name: calculation_complete
+        type: boolean
+        role: dimension
+        possible_values:
+        - false
+        - true
+      - name: start
+        type: timestamp
+        role: timestamp
+      - name: table
+        type: varchar
+        role: dimension
+        possible_values:
+        - sc_task
+      - name: duration
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: year
+        type: integer
+        role: dimension
+      - name: month
+        type: integer
+        role: dimension
+        possible_values:
+        - 10
+        - 11
+        - 12
+        - 6
+        - 7
+        - 8
+        - 9
+    - *id004
+    - &id010
+      name: itsm.tbl_sn_grp_typ_xref
+      description: ServiceNow group type cross-reference table linking assignment groups to their type classifications for organizational structure management.
+      time:
+        field: dw_creation_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: group_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: group_type_system_id
+        type: varchar
+        role: identifier
+        foreign_key: itsm.tbl_sn_grp_typ.group_type_system_id
+      - name: dw_creation_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_creation_user
+        type: varchar
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updated_user
+        type: varchar
+        role: dimension
+    - &id011
+      name: itsm.tbl_sn_grp_typ
+      description: ServiceNow group type definition table containing group type classifications and descriptions for organizational categorization.
+      time:
+        field: dw_creation_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: group_type_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: group_type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: group_type_code
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - service_desk
+      - name: dw_creation_user
+        type: varchar
+        role: dimension
+      - name: dw_last_update_user
+        type: varchar
+        role: dimension
+      - name: dw_creation_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+    - &id013
+      name: itsm_servicedesk.tbl_sn_intrctn_call
+      description: ServiceNow interaction call table containing detailed call session information including agent assignments, call types, and business context for call volume tracking.
+      time:
+        field: open_date
+        type: date
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: varchar
+        role: identifier
+      - name: interaction_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: title_text
+        type: varchar
+        role: dimension
+      - name: group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CTO
+        - EUROPE DEPLOYMENT
+        - INFRA CLOUD & IT OPS
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+        possible_values:
+        - GLOBAL WORKPLACE SERVICES
+        - REGION I&O - EUROPE
+        - SECTOR I&O
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+        possible_values:
+        - SECTOR CTO - PGCS
+        - SECTOR I&O - AMESA
+        - SECTOR I&O - APAC
+        - SERVICE DESK &
+        - DIGITAL EXP SERVICES
+        - SERVICE DESK - EUROPE
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+        possible_values:
+        - SERVICE DESK - AMESA
+        - SERVICE DESK - APAC
+        - SERVICE DESK - NORTH AMERICA
+        - SERVICE DESK - PGCS
+      - name: hierarchy_4
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT APPLICABLE
+        - SECTOR I&O - LATAM - FIELD SUPPORT
+      - name: hierarchy_5
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT APPLICABLE
+        - SERVICE DESK - LATAM
+      - name: state
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED COMPLETE
+        - WORK IN PROGRESS
+      - name: type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - PHONE
+      - name: open_date
+        type: date
+        role: timestamp
+      - name: close_date
+        type: date
+        role: timestamp
+      - name: agent_chat
+        type: varchar
+        role: dimension
+        possible_values:
+        - 'NO'
+        - 'YES'
+      - name: virtual_agent
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - 'NO'
+      - name: assigned_to
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignee_gpid
+        type: varchar
+        role: identifier
+      - name: call_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+        - REQUEST
+        - STATUS CALL
+        - WRONG NUMBER
+      - name: closed_by
+        type: varchar
+        role: dimension
+      - name: closed_by_gpid
+        type: varchar
+        role: identifier
+      - name: created_by
+        type: varchar
+        role: dimension
+      - name: created_by_gpid
+        type: varchar
+        role: identifier
+      - name: opened_by
+        type: varchar
+        role: dimension
+      - name: opened_by_gpid
+        type: varchar
+        role: identifier
+      - name: opened_for
+        type: varchar
+        role: dimension
+      - name: opened_for_gpid
+        type: varchar
+        role: identifier
+      - name: updated_date
+        type: date
+        role: timestamp
+        deeper_insights: true
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+        possible_values:
+        - HCL SD
+        - NOT APPLICABLE
+        - NOT FOUND
+        - PepsiCo Inc
+        - Turk Telecom
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: closed_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+    - name: itsm.tbl_autmtn_instac_call_chat_company
+      description: Automation InstAC call chat company mapping table providing business sector associations for call and chat interactions to enable sector-based performance analysis.
+      columns:
+      - name: call_dw_id
+        type: varchar
+        role: identifier
+      - name: call_id
+        type: varchar
+        role: identifier
+      - name: business_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_business_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+  - name: laptops_and_computers
+    description: Happy Signals customer-experience survey and feedback data scoped to the laptops and computers service line.
+    tables:
+    - *id005
+    - &id006
+      name: itsm_servicedesk.tbl_u_task_to_feedbacks
+      description: Task to feedbacks mapping table containing the relationship between tasks and customer feedback responses for response rate analysis.
+      time:
+        field: created
+        type: timestamp
+        grain: day
+      columns:
+      - name: feedback
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: responder
+        type: varchar
+        role: dimension
+      - name: response_id
+        type: varchar
+        role: identifier
+      - name: task
+        type: varchar
+        role: dimension
+      - name: task_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - INC
+        - RITM
+      - name: task_system_id
+        type: varchar
+        role: identifier
+      - name: responder_id
+        type: varchar
+        role: identifier
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: varchar
+        role: dimension
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: created
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+    - &id007
+      name: itsm_servicedesk.tbl_happy_signals_service_area
+      description: Happy signals by service area table containing customer satisfaction data segmented by service areas for detailed service area performance analysis.
+      time:
+        field: sys_created_on_date
+        type: date
+        grain: day
+      columns:
+      - name: system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: mood
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Negative
+        - Neutral
+        - Positive
+      - name: response_id
+        type: varchar
+        role: identifier
+      - name: closing_assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: varchar
+        role: dimension
+      - name: resolved_by_user_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: score
+        type: integer
+        role: measure
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        - 10
+      - name: number
+        type: varchar
+        role: dimension
+      - name: task_number
+        type: varchar
+        role: dimension
+      - name: record
+        type: varchar
+        role: dimension
+      - name: system_domain
+        type: json
+        role: dimension
+      - name: class_name
+        type: varchar
+        role: dimension
+        possible_values:
+        - Incident
+        - Requested Item
+      - name: table
+        type: varchar
+        role: dimension
+        possible_values:
+        - incident
+        - sc_req_item
+      - name: timestamp
+        type: varchar
+        role: timestamp
+      - name: answered
+        type: varchar
+        role: timestamp
+      - name: related_user_name
+        type: varchar
+        role: dimension
+      - name: profile
+        type: varchar
+        role: dimension
+        possible_values:
+        - Doer
+        - Prioritiser
+        - Supported
+        - Trier
+      - name: system_modification_count
+        type: integer
+        role: measure
+        possible_values:
+        - 0
+        - 1
+      - name: system_tags
+        type: varchar
+        role: dimension
+        possible_values:
+        - FAQ0000238
+      - name: feedback_text
+        type: text
+        role: dimension
+        deeper_insights: true
+      - name: factors
+        type: varchar
+        role: dimension
+      - name: lost_work_time
+        type: integer
+        role: measure
+      - name: system_created_on
+        type: varchar
+        role: timestamp
+      - name: sys_created_on_date
+        type: date
+        role: timestamp
+      - name: system_created_by
+        type: varchar
+        role: dimension
+        possible_values:
+        - system
+      - name: system_updated_on
+        type: timestamp
+        role: timestamp
+      - name: system_updated_on_date
+        type: date
+        role: timestamp
+      - name: system_updated_by
+        type: varchar
+        role: dimension
+      - name: score_category
+        type: text
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Detractor
+        - Neutral
+        - Promoter
+      - name: it_vendor_name
+        type: varchar
+        role: dimension
+        alias: vendor
+        deeper_insights: true
+      - name: hierarchy_1
+        type: varchar
+        role: dimension
+      - name: hierarchy_2
+        type: varchar
+        role: dimension
+      - name: hierarchy_3
+        type: varchar
+        role: dimension
+      - name: service_area
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assignment_group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: assigned_to
+        type: varchar
+        role: dimension
+      - name: sub_business_name_text
+        type: varchar
+        role: dimension
+      - name: region_name_text
+        type: varchar
+        role: dimension
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+    - &id008
+      name: itsm_servicedesk.tbl_sn_x_pgo_hapy_it_ex_hapysgnls_srvy_runs
+      description: Happy IT experience survey runs table containing detailed survey responses for different IT services including computer, enterprise applications, and mobile devices.
+      time:
+        field: answered
+        type: timestamp
+        grain: day
+      columns:
+      - name: happy_signals_survey_runs_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: user_name
+        type: varchar
+        role: dimension
+      - name: user_gpid
+        type: varchar
+        role: identifier
+      - name: domain
+        type: varchar
+        role: dimension
+        possible_values:
+        - global
+      - name: answered
+        type: timestamp
+        role: timestamp
+      - name: comment
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: iteration_id
+        type: varchar
+        role: identifier
+      - name: lost_time
+        type: integer
+        role: measure
+        deeper_insights: true
+      - name: raw_answer
+        type: varchar
+        role: dimension
+      - name: reasons_why
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: response_mood
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - Negative
+        - Neutral
+        - Positive
+      - name: score
+        type: integer
+        role: measure
+        deeper_insights: true
+        possible_values:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        - 10
+      - name: survey_id
+        type: varchar
+        role: identifier
+        deeper_insights: true
+        possible_values:
+        - application
+      - name: survey_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: system_tags
+        type: varchar
+        role: dimension
+      - name: timestamp
+        type: varchar
+        role: timestamp
+      - name: system_created_on
+        type: timestamp
+        role: timestamp
+      - name: system_created_by
+        type: varchar
+        role: dimension
+        possible_values:
+        - system
+      - name: system_updated_on
+        type: timestamp
+        role: timestamp
+      - name: system_updated_by
+        type: varchar
+        role: dimension
+      - name: updates
+        type: integer
+        role: measure
+        possible_values:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+      - name: send_date
+        type: timestamp
+        role: timestamp
+      - name: send_time_zone
+        type: varchar
+        role: dimension
+      - name: number
+        type: varchar
+        role: dimension
+      - name: survery_responded
+        type: varchar
+        role: dimension
+        possible_values:
+        - 'NO'
+        - 'YES'
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: application
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+  - name: enterprise_applications
+    description: Happy Signals customer-experience survey and feedback data scoped to enterprise applications.
+    tables:
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+  - name: mobile_devices
+    description: Happy Signals customer-experience survey and feedback data scoped to mobile devices.
+    tables:
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+  - name: it_services
+    description: Happy Signals customer-experience survey and feedback data scoped to general IT services.
+    tables:
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+  - name: operations_dashboard
+    description: Service desk operations metrics covering call/chat interaction volume, incident and service-request interactions, FCR, and group/type reference data.
+    tables:
+    - *id009
+    - &id018
+      name: itsm_servicedesk.tbl_sn_intractn_incident
+      description: ServiceNow incident interaction table containing detailed incident interaction information including agent assignments, timestamps, and business context for tracking incident interactions.
+      time:
+        field: open_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: interaction_id
+        type: varchar
+        role: identifier
+      - name: virtual_agent_indicator
+        type: boolean
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - false
+        - true
+      - name: agent_chat_indicator
+        type: boolean
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - false
+        - true
+      - name: status_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED ABANDONED
+        - CLOSED COMPLETE
+        - NEW
+        - WORK IN PROGRESS
+      - name: status_code
+        type: varchar
+        role: dimension
+        possible_values:
+        - closed_abandoned
+        - closed_complete
+        - new
+        - work_in_progress
+      - name: type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CHAT
+        - MESSAGING
+        - NOT FOUND
+        - NOT PROVIDED
+        - PHONE
+        - WALK-UP
+      - name: call_type_code
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+        - Request
+        - Status Call
+        - Wrong Number
+      - name: call_type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+        - REQUEST
+        - STATUS CALL
+        - WRONG NUMBER
+      - name: group_system_id
+        type: varchar
+        role: identifier
+      - name: live_handoff_date_time
+        type: timestamp
+        role: timestamp
+      - name: created_date_time
+        type: timestamp
+        role: timestamp
+      - name: updated_date_time
+        type: timestamp
+        role: timestamp
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: close_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: dw_crt_dtm
+        type: timestamp
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: opened_for_group_id
+        type: varchar
+        role: identifier
+      - name: opened_for_full_name
+        type: varchar
+        role: dimension
+      - name: closed_by_group_id
+        type: varchar
+        role: identifier
+      - name: closed_by_full_name
+        type: varchar
+        role: dimension
+      - name: assigned_contact_group_id
+        type: varchar
+        role: identifier
+      - name: assigned_contact_full_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: opened_by_group_id
+        type: varchar
+        role: identifier
+      - name: opened_by_full_name
+        type: varchar
+        role: dimension
+      - name: updated_by_group_id
+        type: varchar
+        role: identifier
+      - name: updated_by_full_name
+        type: varchar
+        role: dimension
+      - name: created_by_group_id
+        type: varchar
+        role: identifier
+      - name: created_by_full_name
+        type: varchar
+        role: dimension
+      - name: dw_crt_user
+        type: varchar
+        role: dimension
+      - name: dw_last_updt_user
+        type: varchar
+        role: dimension
+      - name: open_dtm_id
+        type: numeric
+        role: identifier
+      - name: close_dtm_id
+        type: numeric
+        role: identifier
+      - name: updated_dtm_id
+        type: numeric
+        role: identifier
+      - name: created_dtm_id
+        type: numeric
+        role: identifier
+      - name: live_handoff_dtm_id
+        type: numeric
+        role: identifier
+      - name: incident_system_id
+        type: text
+        role: identifier
+      - name: group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: vendor_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - NOT FOUND
+        - PepsiCo Inc
+        - TCS
+        - Turk Telecom
+      - name: country_text
+        type: text
+        role: dimension
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: ticket_id
+        type: varchar
+        role: identifier
+        deeper_insights: true
+      - name: country
+        type: text[]
+        role: dimension
+    - &id019
+      name: itsm_servicedesk.tbl_sn_intractn_servicerequest
+      description: ServiceNow service request interaction table containing detailed service request interaction information including agent assignments, timestamps, and business context for tracking service request interactions.
+      time:
+        field: open_date_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: interaction_system_id
+        type: varchar
+        role: identifier
+        primary_key: true
+      - name: interaction_id
+        type: varchar
+        role: identifier
+      - name: virtual_agent_indicator
+        type: boolean
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - false
+        - true
+      - name: agent_chat_indicator
+        type: boolean
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - false
+        - true
+      - name: status_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CLOSED ABANDONED
+        - CLOSED COMPLETE
+        - WORK IN PROGRESS
+      - name: status_code
+        type: varchar
+        role: dimension
+        possible_values:
+        - closed_abandoned
+        - closed_complete
+        - work_in_progress
+      - name: type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - CHAT
+        - PHONE
+      - name: call_type_code
+        type: varchar
+        role: dimension
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+        - Request
+        - Status Call
+        - Wrong Number
+      - name: call_type_description
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - NOT FOUND
+        - NOT PROVIDED
+        - REQUEST
+        - STATUS CALL
+        - WRONG NUMBER
+      - name: group_system_id
+        type: varchar
+        role: identifier
+      - name: live_handoff_date_time
+        type: timestamp
+        role: timestamp
+      - name: created_date_time
+        type: timestamp
+        role: timestamp
+      - name: updated_date_time
+        type: timestamp
+        role: timestamp
+      - name: open_date_time
+        type: timestamp
+        role: timestamp
+      - name: close_date_time
+        type: timestamp
+        role: timestamp
+      - name: dw_last_updt_dtm
+        type: timestamp
+        role: timestamp
+      - name: dw_crt_dtm
+        type: timestamp
+        role: timestamp
+      - name: title_text
+        type: text
+        role: dimension
+      - name: opened_for_group_id
+        type: varchar
+        role: identifier
+      - name: opened_for_full_name
+        type: varchar
+        role: dimension
+      - name: closed_by_group_id
+        type: varchar
+        role: identifier
+      - name: closed_by_full_name
+        type: varchar
+        role: dimension
+      - name: assigned_contact_group_id
+        type: varchar
+        role: identifier
+      - name: assigned_contact_full_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: opened_by_group_id
+        type: varchar
+        role: identifier
+      - name: opened_by_full_name
+        type: varchar
+        role: dimension
+      - name: updated_by_group_id
+        type: varchar
+        role: identifier
+      - name: updated_by_full_name
+        type: varchar
+        role: dimension
+      - name: created_by_group_id
+        type: varchar
+        role: identifier
+      - name: created_by_full_name
+        type: varchar
+        role: dimension
+      - name: dw_crt_user
+        type: varchar
+        role: dimension
+      - name: dw_last_updt_user
+        type: varchar
+        role: dimension
+      - name: open_dtm_id
+        type: numeric
+        role: identifier
+      - name: close_dtm_id
+        type: numeric
+        role: identifier
+      - name: updated_dtm_id
+        type: numeric
+        role: identifier
+      - name: created_dtm_id
+        type: numeric
+        role: identifier
+      - name: live_handoff_dtm_id
+        type: numeric
+        role: identifier
+      - name: request_item_system_id
+        type: text
+        role: identifier
+      - name: group_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: vendor_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - HCL
+        - NOT APPLICABLE
+        - NOT FOUND
+      - name: country_text
+        type: text
+        role: dimension
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
+        alias: sector
+        cross_join: cross join LATERAL unnest(business_name) AS s(sector)
+      - name: sub_business_name_text
+        type: text
+        role: dimension
+      - name: sub_business_name
+        type: text[]
+        role: dimension
+        alias: division
+        cross_join: cross join LATERAL unnest(sub_business_name) AS s(division)
+      - name: region_name_text
+        type: text
+        role: dimension
+      - name: region_name
+        type: text[]
+        role: dimension
+        alias: region
+        cross_join: cross join LATERAL unnest(region_name) AS s(region)
+      - name: combined_business_name_text
+        type: text
+        role: dimension
+      - name: combined_business_name
+        type: text[]
+        role: dimension
+        alias: combined_sector
+        cross_join: cross join LATERAL unnest(combined_business_name) AS s(combined_sector)
+      - name: ticket_id
+        type: varchar
+        role: identifier
+        deeper_insights: true
+      - name: country
+        type: text[]
+        role: dimension
+    - *id002
+    - *id010
+    - *id011
+    - *id012
+    - *id013
+    - *id014
+  - name: value_realization
+    description: Value-realization metrics blending call/chat volume, customer happiness signals, service-request items and tasks, and service quality audit scores.
+    tables:
+    - *id009
+    - *id005
+    - *id008
+    - *id015
+    - *id004
+    - *id014
+    - *id016
+    - *id017
+  - name: adaption_dashboard
+    description: Digital adoption metrics covering incident/service-request interactions, customer happiness signals, service catalog items, service requests, and user login/session activity.
+    tables:
+    - *id018
+    - *id019
+    - *id005
+    - *id020
+    - *id021
+    - *id015
+    - *id004
+    - name: common.user_login_sessions
+      description: User login sessions table containing comprehensive user authentication and session management data including login/logout times, token management, activity tracking, and user role information for monitoring user access and session lifecycle.
+      time:
+        field: log_in_time
+        type: timestamp
+        grain: day
+      columns:
+      - name: user_uuid
+        type: uuid
+        role: identifier
+        foreign_key: common.users.user_uuid
+      - name: user_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: email
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: status
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: log_in_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the user logged into the system
+      - name: log_out_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the user logged out of the system
+      - name: id_token
+        type: text
+        role: dimension
+      - name: access_token
+        type: text
+        role: dimension
+      - name: role
+        type: json
+        role: dimension
+        deeper_insights: true
+      - name: last_activity_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp of the user's last activity in the session
+      - name: token_refresh_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the authentication token was last refreshed
+      - name: token_expiry_time
+        type: timestamp
+        role: timestamp
+        description: Timestamp when the authentication token will expire
+      - name: is_active
+        type: boolean
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - true
+        - false
+      - name: sys_created_by
+        type: varchar
+        role: dimension
+      - name: sys_created_on
+        type: timestamp
+        role: timestamp
+      - name: sys_updated_by
+        type: varchar
+        role: dimension
+      - name: sys_updated_on
+        type: timestamp
+        role: timestamp
+    - name: itsm.tbl_sys_user
+      description: System user reference table containing user profile information including employee details, contact information, organizational affiliation, and business context for user identification and tracking across ITSM systems.
+      columns:
+      - name: gpid
+        type: varchar
+        role: identifier
+        deeper_insights: true
+        alias: user id
+      - name: last_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: company_name
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: active
+        type: varchar
+        role: dimension
+        deeper_insights: true
+        possible_values:
+        - true
+        - false
+      - name: email
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: country
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: employee_type
+        type: varchar
+        role: dimension
+        deeper_insights: true
+      - name: business_name_text
+        type: text
+        role: dimension
+      - name: business_name
+        type: text[]
+        role: dimension
         alias: sector
         cross_join: cross join LATERAL unnest(business_name) AS s(sector)
       - name: dw_last_updt_dtm
