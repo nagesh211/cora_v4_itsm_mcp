@@ -766,6 +766,7 @@ async def generate_query(
         "title": config.get("title"),
         "module": config.get("module"),
         "execution_mode": config.get("execution_mode"),
+        "higher_is_better": _higher_is_better(config),
         "mode": mode,
         "dimension": eff_dim,
         "grain": eff_grain,
@@ -900,6 +901,12 @@ def _comparison_summary(out: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if prev:
         summary["pct_change"] = round((cur - prev) / abs(prev) * 100, 2)
     summary["direction"] = ("up" if cur > prev else "down" if cur < prev else "flat")
+    higher_is_better = out.get("higher_is_better")
+    summary["higher_is_better"] = higher_is_better
+    if isinstance(higher_is_better, bool) and summary["direction"] != "flat":
+        summary["is_improvement"] = (summary["direction"] == "up") == higher_is_better
+    else:
+        summary["is_improvement"] = None
     return summary
 
 
@@ -949,6 +956,24 @@ def _breakdown_rows(dim_names: List[str], rows: List[Dict[str, Any]]) -> List[Di
             item["value"] = next((v for k, v in r.items() if k not in grp_cols), None)
         out.append(item)
     return out
+
+
+def _higher_is_better(config: dict) -> Optional[bool]:
+    """True/False -- whether a RISING value for this KPI is IMPROVEMENT, so
+    callers (and the summarizing LLM) don't have to guess whether a rising
+    number is good news (e.g. availability) or bad news (e.g. incident count).
+
+    Prefers the config's explicit ``higher_is_better``; falls back to the
+    older ``signal.up_is_bad`` flag for configs not yet migrated. ``None``
+    when neither is present -- direction has no known good/bad polarity.
+    """
+    hib = config.get("higher_is_better")
+    if isinstance(hib, bool):
+        return hib
+    up_is_bad = (config.get("signal") or {}).get("up_is_bad")
+    if isinstance(up_is_bad, bool):
+        return not up_is_bad
+    return None
 
 
 def _status_for(config: dict, value: Any) -> Optional[str]:
@@ -1045,6 +1070,7 @@ async def module_overview(
                 entry["value"] = value
                 entry["window"] = cur.get("window")
                 entry["status"] = _status_for(cfg, value)
+                entry["higher_is_better"] = _higher_is_better(cfg)
                 tgt = cfg.get("target") or {}
                 if tgt:
                     entry["target"] = tgt.get("value")
@@ -1063,6 +1089,11 @@ async def module_overview(
                         entry["delta"] = round(float(value) - float(prev), 4)
                     except (TypeError, ValueError):
                         entry["delta"] = None
+                    hib = entry["higher_is_better"]
+                    if entry["delta"] and isinstance(hib, bool):
+                        entry["is_improvement"] = (entry["delta"] > 0) == hib
+                    else:
+                        entry["is_improvement"] = None
         except QueryError as exc:
             entry["error"] = str(exc)
 

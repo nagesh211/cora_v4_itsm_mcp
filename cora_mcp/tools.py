@@ -414,7 +414,16 @@ def _register_core(mcp) -> List[str]:
         quarter") as `period` in ONE call with mode='stat'. The result carries one
         window per side (`comparison_side`: previous/current) and, for stat mode, a
         ready-made `comparison_summary` {previous, current, delta, pct_change,
-        direction} — report those numbers rather than recomputing them.
+        direction, higher_is_better, is_improvement} — report those numbers
+        rather than recomputing them.
+
+        DIRECTION vs. GOOD/BAD: `direction`/`delta` only say the number went up or
+        down — NOT whether that's good news. Some KPIs are better when they rise
+        (availability, CSAT) and others are better when they fall (incident count,
+        MTTR). Use `higher_is_better` (bool) and `is_improvement` (bool) from
+        `comparison_summary` — or the top-level `higher_is_better` on the result —
+        to phrase the summary correctly (e.g. don't call a rising incident count
+        "improved" just because it went up).
 
         TWO-METRIC COMPARISON GROUPED BY A DIMENSION ("incidents created vs
         closed last month by vendor") — see generate_query's docstring for
@@ -754,6 +763,12 @@ def _register_core(mcp) -> List[str]:
         """Module-level insights: run every KPI in a module for one period and
         filter, and return a rollup (value, delta vs the comparison window,
         target and RAG status per KPI).
+
+        Each KPI also carries `higher_is_better` (bool -- whether a rising value
+        means IMPROVING for that KPI) and `is_improvement` (whether this delta
+        was a good or bad move). A rising `delta` is not always good news (e.g.
+        incident count, MTTR rising is bad); use these fields rather than
+        assuming "up = better", and phrase the summary accordingly.
 
         The comparison window is NOT always "last month": a named period like
         "current month"/"this quarter" compares against the SAME calendar
