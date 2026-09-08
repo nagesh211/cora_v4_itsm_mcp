@@ -516,12 +516,12 @@ async def main(
 
 if __name__ == "__main__":
     # Customize these values
-    CONFIG_PATH = "./itsm-updated"  # Path to JSON files or single JSON file
-    OPENSEARCH_HOST = "10.64.4.28"
-    OPENSEARCH_PORT = 9201
-    OPENSEARCH_INDEX = "cora-kpi-configs-pep"
+    CONFIG_PATH = "./dr"  # Path to JSON files or single JSON file
+    OPENSEARCH_HOST = ""
+    OPENSEARCH_PORT = ""
+    OPENSEARCH_INDEX = "cora-kpi-configs-dr"
     OPENSEARCH_USERNAME = "admin"  # Set if needed
-    OPENSEARCH_PASSWORD = "EdxiPassw0rd!"  # Set if needed
+    OPENSEARCH_PASSWORD = ""  # Set if needed
     OPENSEARCH_USE_SSL = True  # Set to True if using HTTPS
 
     asyncio.run(main(

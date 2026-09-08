@@ -319,10 +319,10 @@ _SUMMARY_SYSTEM = (
     "dimension group, not just an overall line.\n"
     "ALWAYS CITE THE SOURCE: if a result has a top-level `citations` list, end your "
     "answer with one short line naming where the number(s) came from — e.g. "
-    "'Source: itsm_incident.tbl_all_incidents (owner: Incident Management).' Use the "
-    "`dataset` and `owner` fields; if several distinct datasets appear across the "
-    "citations, name each once (don't repeat identical ones). Never omit this line "
-    "when `citations` is present, even for a short answer."
+    "'Source: incident module.' Use the `module` field (`owner` carries the same "
+    "value) and the `title`/`kpi` when it adds anything; if several distinct modules "
+    "appear across the citations, name each once (don't repeat identical ones). Never "
+    "omit this line when `citations` is present, even for a short answer."
 )
 
 _REPHRASE_SYSTEM = (

@@ -34,6 +34,7 @@ from cora_mcp.module_registry import (detect_module, module_choices, refresh_mod
                                       routing_mode)
 from cora_mcp.query_engine import (
     QueryError,
+    _table_citations,
     generate_query as _generate_query,
     get_record_detail as _get_record_detail,
     module_overview as _module_overview,
@@ -406,8 +407,8 @@ def _register_core(mcp) -> List[str]:
         configured). The generated SQL is still included for transparency.
         Prefer this tool when the user wants an answer/number, not SQL.
 
-        `citations` names the KPI config, dataset (schema.table), connection
-        and owning team the numbers came from — cite it (e.g. "Source: itsm_availability.tbl_tableau_outagesv4, owned by Availability Management")
+        `citations` names the KPI config and the module that owns the numbers
+        (`owner` mirrors `module`) — cite it (e.g. "Source: availability module")
         when presenting the answer, don't just report the number.
 
         PERIOD COMPARISONS: pass the whole phrase ("last quarter vs current
@@ -505,8 +506,9 @@ def _register_core(mcp) -> List[str]:
             to return detail/reason rows for a specific record.
           limit: max rows (default 200, hard cap 5000).
 
-        `citations` names the table(s) (and, when `metric` anchors the query, the
-        owning KPI config/team) the rows came from — cite it in the answer.
+        `citations` names the module(s) the rows came from — the owning KPI
+        config's module when `metric` anchors the query, otherwise the module
+        each queried table belongs to — cite it in the answer.
         """
         t0 = _log_call("query_dataset", base=base, metric=metric, select=select,
                        dimensions=dimensions, filters=filters, period=period,
@@ -798,9 +800,9 @@ def _register_core(mcp) -> List[str]:
         breakdowns — one overview_module call with `dim` covers the whole module.
         For a single metric use run_kpi instead.
 
-        Each metric carries its own `citations` (KPI config, dataset, owner);
-        a deduped top-level `citations` also rolls up every dataset touched by
-        the module. Cite the relevant dataset/owner when reporting a number,
+        Each metric carries its own `citations` (KPI config, module, owner);
+        a deduped top-level `citations` also rolls up every KPI the overview
+        touched. Cite the relevant module/owner when reporting a number,
         not just the value."""
         t0 = _log_call("overview_module", module=module, period=period,
                        filters=filters, dim=dim, limit_kpis=limit_kpis)
@@ -1067,9 +1069,9 @@ def _register_core(mcp) -> List[str]:
           filters: optional filter words you intended to apply -- checked for
             presence in WHERE/JOIN ON, same as generate_sql.
 
-        `citations` lists the table(s) parsed out of your own FROM/JOIN
-        clauses (best-effort -- there's no governed KPI config to cite here)
-        -- cite them in the answer same as any other tool's result.
+        `citations` names the module(s) owning the table(s) parsed out of your
+        own FROM/JOIN clauses (best-effort -- there's no governed KPI config to
+        cite here) -- cite them in the answer same as any other tool's result.
         """
         t0 = _log_call("run_postgres_sql", sql=sql, limit=limit)
         from cora_mcp import sql_guard, db as _db
@@ -1110,8 +1112,8 @@ def _register_core(mcp) -> List[str]:
                                                           filters or [], "postgres"))
                 except Exception:
                     retry_out.update(presence)
-                retry_out["citations"] = [{"dataset": t, "connection": None, "dialect": "postgres"}
-                                          for t in sql_alias.referenced_tables(retried_sql)]
+                retry_out["citations"] = await _table_citations(
+                    sql_alias.referenced_tables(retried_sql))
                 _log_done("run_postgres_sql", t0,
                           f"-> auto-corrected, {retry_out.get('rowcount')} row(s)")
                 return retry_out
@@ -1119,8 +1121,8 @@ def _register_core(mcp) -> List[str]:
                      "hints": fix.get("hints", [])}
         out["sql"] = checked_sql
         out.update(presence)
-        out["citations"] = [{"dataset": t, "connection": None, "dialect": "postgres"}
-                            for t in sql_alias.referenced_tables(checked_sql)]
+        out["citations"] = await _table_citations(
+            sql_alias.referenced_tables(checked_sql))
         _log_done("run_postgres_sql", t0, f"-> {out.get('rowcount')} row(s)")
         return out
 

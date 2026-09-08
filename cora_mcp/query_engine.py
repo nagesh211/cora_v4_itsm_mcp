@@ -52,25 +52,50 @@ _MODES = ("stat", "series", "table")
 
 
 def _kpi_citation(config: Dict[str, Any], kpi: Optional[str] = None) -> Dict[str, Any]:
-    """Build a single citation entry describing the data source backing a KPI
-    config, so answers can say where a number came from instead of just what
-    it is."""
-    source = config.get("source") or {}
-    primary = config.get("primary_dataset") or {}
-    governance = config.get("governance") or {}
-    schema = primary.get("schema") or source.get("schema")
-    table = primary.get("table") or primary.get("name")
-    dataset = f"{schema}.{table}" if schema and table else (table or schema)
+    """Build a single citation entry naming the KPI and the module that owns it,
+    so answers can say where a number came from instead of just what it is.
+
+    ``owner`` deliberately mirrors ``module``: the owning module *is* the owning
+    team here, and the key is kept so consumers that read ``owner`` (the
+    summarizer prompt among them) need no special case.
+    """
+    module = config.get("module")
     return {
         "kpi": kpi or config.get("name"),
         "title": config.get("title"),
-        "module": config.get("module"),
-        "dataset": dataset,
-        "connection": source.get("connection"),
-        "dialect": source.get("dialect"),
-        "owner": governance.get("owner"),
-        "updated_at": governance.get("updated_at"),
+        "module": module,
+        "owner": module,
     }
+
+
+async def _table_citations(tables: List[Optional[str]]) -> List[Dict[str, Any]]:
+    """Citations for a query with no governed KPI behind it (ad-hoc
+    ``query_dataset``, hand-written SQL): attribute each table to the module
+    that owns it -- the KPI config index first, the schema catalog as fallback
+    -- and emit the same ``{module, owner}`` shape as :func:`_kpi_citation`.
+
+    Deduped by module, and a table neither source knows is skipped rather than
+    cited as an entry with nothing in it.
+    """
+    from cora_mcp.schema_loader import get_loader
+    fqns = [t for t in tables if t]
+    if not fqns:
+        return []
+    mapping: Dict[str, str] = {}
+    try:
+        mapping = await get_catalog().modules_for_tables(fqns)
+    except Exception as exc:      # index unavailable -> schema catalog only
+        log.warning("could not map tables to modules for citations: %s", exc)
+    loader = get_loader()
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for fqn in fqns:
+        module = mapping.get(fqn.lower()) or loader.table_module(fqn)
+        if not module or module in seen:
+            continue
+        seen.add(module)
+        out.append({"module": module, "owner": module})
+    return out
 
 
 class QueryError(ValueError):
@@ -1272,9 +1297,7 @@ async def run_dataset_query(spec: Union[Dict[str, Any], "object"],
     if spec.metric:
         citations.append(_kpi_citation(cfg, spec.metric))
     else:
-        tables = [built.base_table, *(built.joined_tables or [])]
-        citations = [{"dataset": t, "connection": connection, "dialect": dialect}
-                     for t in tables if t]
+        citations = await _table_citations([built.base_table, *(built.joined_tables or [])])
     result: Dict[str, Any] = {
         "base_table": built.base_table,
         "joined_tables": built.joined_tables,

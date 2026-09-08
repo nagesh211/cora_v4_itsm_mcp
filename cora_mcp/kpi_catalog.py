@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import Counter, defaultdict
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
@@ -134,6 +135,43 @@ class OpenSearchBackend:
                                        op="SCAN configs_for_tables")
         return sorted(set(names))
 
+    async def modules_for_tables(self, fqns: List[str]) -> Dict[str, str]:
+        """``schema.table`` -> the module whose KPI config anchors on it.
+
+        ``primary_table`` is a keyword field (matched exactly), so both the given
+        casing and its lowercase form are asked for; the returned keys are always
+        lowercased. Tables no config anchors on are simply absent.
+
+        A shared table (``tbl_all_incidents`` is anchored by KPIs in several
+        modules) has no single owner, so the module with the most KPIs on it
+        wins, ties broken alphabetically -- one stable answer rather than
+        whichever hit the index returned first.
+        """
+        wanted = {f for f in fqns if f}
+        wanted |= {f.lower() for f in wanted}
+        if not wanted:
+            return {}
+        body = {"query": {"terms": {"primary_table": sorted(wanted)}},
+                "_source": ["primary_table", "module"], "size": 1000}
+        log.info("executing on %s/opensearch [SCAN modules_for_tables]: %s",
+                 self._index, _dump(body))
+        t0 = time.perf_counter()
+        resp = await self._client.search(index=self._index, body=body)
+        tally: Dict[str, Counter] = defaultdict(Counter)
+        for h in resp.get("hits", {}).get("hits", []):
+            src = h.get("_source") or {}
+            table, module = src.get("primary_table"), src.get("module")
+            if table and module:
+                tally[str(table).lower()][module] += 1
+        out: Dict[str, str] = {
+            table: min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+            for table, counts in tally.items()
+        }
+        log.info("executing on %s/opensearch [SCAN modules_for_tables] -> %d mapping(s) "
+                 "%s in %.1fms", self._index, len(out), out,
+                 (time.perf_counter() - t0) * 1000)
+        return out
+
     async def search_scored(self, query: str, module: Optional[str], limit: int,
                             boost_only: bool = False) -> List[Tuple[dict, float]]:
         """BM25 over the config index, optionally scoped to a module.
@@ -207,6 +245,10 @@ class KpiCatalog:
     async def configs_for_tables(self, fqns: List[str]) -> List[str]:
         """KPI names whose primary dataset is one of the given schema.table names."""
         return await self._backend.configs_for_tables(fqns)
+
+    async def modules_for_tables(self, fqns: List[str]) -> Dict[str, str]:
+        """schema.table -> owning module, for the given tables (keys lowercased)."""
+        return await self._backend.modules_for_tables(fqns)
 
     # ---- search ----------------------------------------------------------
     async def search(self, query: str, module: Optional[str] = None, limit: int = 8,

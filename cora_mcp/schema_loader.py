@@ -101,6 +101,13 @@ class SchemaLoader:
         rec = self._by_table.get(fqn)
         return rec[2] if rec else None
 
+    def table_module(self, fqn: str) -> Optional[str]:
+        """Owning module for a ``schema.table`` in the catalog's own module
+        vocabulary -- the fallback attribution for a table that no KPI config
+        anchors on (so ad-hoc / raw SQL can still be attributed)."""
+        rec = self._by_table.get(fqn) or self._by_table.get((fqn or "").lower())
+        return rec[0] if rec else None
+
     def known_table_fqns(self) -> List[str]:
         """Every ``schema.table`` this catalog knows about -- used to suggest a
         near-match for a table name that doesn't exist (e.g. free-text SQL that
