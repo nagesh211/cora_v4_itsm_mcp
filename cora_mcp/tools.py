@@ -343,6 +343,18 @@ def _register_core(mcp) -> List[str]:
         or "table" (grouped by a dimension — set `dim`). `dim` accepts a single
         field OR a list to break down by several dimensions at once, e.g.
         dim=["region_name", "priority"].
+
+        BREAKDOWN vs TREND — what `mode` a `dim` belongs with: a breakdown of ONE
+        period ("availability for February 2026 by sector", "MTD by assignment
+        group") is mode='table'. A GRAIN WORD DOES NOT MAKE IT A TREND: "monthly
+        availability by sector for February 2026" is still one month, i.e.
+        mode='table' — "monthly" describes the period, not a request for a trend
+        across periods. Use mode='series' only when the answer needs MULTIPLE
+        periods ("trend", "over the last 6 months", "by month this year", "has it
+        increased"); a per-period breakdown then needs `dim` too. Passing a `dim`
+        with mode='series' over a single-bucket window is corrected to mode='table'
+        (reported as `mode_note`), and mode='stat' with a `dim` likewise.
+
         `filters` is a mapping of field -> value or list of values.
         `comparison=True` also emits the previous (PYTD) window in stat mode.
         `as_of` (YYYY-MM-DD) forces a snapshot read.
@@ -401,7 +413,10 @@ def _register_core(mcp) -> List[str]:
         returning the actual result rows (not just SQL).
 
         Same arguments as generate_query (see it for `mode`, `period`, `dim`,
-        `grain`, `filters`, `comparison`, `as_of`). Each result carries
+        `grain`, `filters`, `comparison`, `as_of`) — including its BREAKDOWN vs
+        TREND rule: a breakdown of one period is mode='table' even when the
+        question (or the intent classifier) named a grain like "monthly";
+        mode='series' is for answers that span several periods. Each result carries
         `columns` and `rows` (plus `rowcount`), or an `error` string if the
         query could not be executed (e.g. the database connection is not
         configured). The generated SQL is still included for transparency.
@@ -426,14 +441,21 @@ def _register_core(mcp) -> List[str]:
         to phrase the summary correctly (e.g. don't call a rising incident count
         "improved" just because it went up).
 
+        A DROPPED DIMENSION IS NOT AN ANSWER: if the result carries
+        `dropped_dim`/`dimension_note`, the numbers are NOT broken down the way
+        the question asked. Do not present them as if they were. Retry as
+        mode='table' if the call used mode='series' (a breakdown of one period
+        belongs in table mode), and otherwise say the breakdown is unavailable
+        for this metric — quoting `dimension_note`, which names the reason — or
+        build it with run_postgres_sql.
+
         TWO-METRIC COMPARISON GROUPED BY A DIMENSION ("incidents created vs
         closed last month by vendor") — see generate_query's docstring for
-        why this differs from a period comparison. If this call's result
-        carries `dropped_dim`/`dimension_note`, switch to run_postgres_sql
-        rather than accepting the answer with the dimension missing, or
-        calling run_kpi again for the second metric and merging the two
-        tables yourself (no outer-join guarantee exists for that merge here —
-        it can drop a dimension value that only has activity on one side).
+        why this differs from a period comparison. Here a `dropped_dim` means
+        run_postgres_sql, not calling run_kpi again for the second metric and
+        merging the two tables yourself (no outer-join guarantee exists for
+        that merge here — it can drop a dimension value that only has activity
+        on one side).
         """
         t0 = _log_call("run_kpi", kpi=kpi, period=period, mode=mode, dim=dim,
                        grain=grain, filters=filters, comparison=comparison, limit=limit)

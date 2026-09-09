@@ -19,7 +19,10 @@ Two deliberate divergences from ``gen_query.main``:
   one authored-query run per period bucket (see ``bucket_windows``), because the
   authored scalar query cannot ``GROUP BY`` a time bucket the way the DSL builder
   does. This makes "increase or decrease over the last N months" answerable —
-  each bucket returns its own value instead of one blended average.
+  each bucket returns its own value instead of one blended average. A per-dimension
+  trend runs a GROUPED query per bucket: the authored query rewritten to GROUP BY the
+  dimension (``_sql_bucket_injected_breakdown``, which also keeps the filters), or the
+  KPI's own ``{dim}`` breakdown query when that rewrite can't express its shape.
 * **Explicit-window stat** — when the caller names a concrete period (``period``
   or ``from_date``/``to_date``), ``stat`` mode uses THAT window verbatim rather
   than expanding it to the KPI's CYTD comparison window. The CYTD/PYTD comparison
@@ -515,6 +518,96 @@ def _grp_select(dim_cols: List[str]) -> str:
     return ", ".join(cols)
 
 
+def _outer_measure_alias(sql: str, grp_aliases: List[str]) -> Optional[str]:
+    """The output column of a grouped query that carries the MEASURE — i.e. the one
+    projection that isn't a group key — so a wrapper can re-alias it to ``v``.
+
+    Used by :func:`_sql_bucket_injected_breakdown`, where the measure keeps whatever
+    alias the KPI's author gave it (``availability_perc``, ``mttr_hours``, …) and the
+    series row contract is ``(bucket, grp[, grp2, …], v)``. ``None`` when the answer
+    isn't unambiguous (sqlglot missing, unparseable SQL, or more than one non-group
+    projection) — callers treat that as "can't use this path" rather than guessing.
+    """
+    if gq.sqlglot is None:
+        return None
+    try:
+        tree = gq.sqlglot.parse_one(sql, read="postgres")
+    except Exception as exc:                      # never let a parse failure escape
+        log.debug("_outer_measure_alias parse failed: %s", exc)
+        return None
+    select = tree if isinstance(tree, gq.exp.Select) else tree.find(gq.exp.Select)
+    if select is None:
+        return None
+    keys = set(grp_aliases)
+    rest = [e.alias_or_name for e in select.expressions if e.alias_or_name not in keys]
+    return rest[0] if len(rest) == 1 else None
+
+
+def _sql_bucket_injected_breakdown(config: dict, dim_cols, win, label: str,
+                                   filter_by: Optional[Dict[str, Any]] = None):
+    """One time bucket of a SQL-mode trend broken down by one or more dimensions,
+    built by REWRITING the KPI's authored query — the same GROUP BY injection
+    ``table`` mode uses (``gen_query.driver_substitute`` -> ``_sql_inject_group_by``
+    / ``_sql_pushdown_group_by``).
+
+    Preferred over :func:`_sql_bucket_breakdown` because it needs no hand-authored
+    ``{dim}`` breakdown query (most SQL configs have none, which used to mean the
+    trend silently lost its dimension) AND it still applies the requested filters,
+    which the authored-template path cannot.
+
+    The injected query keeps the author's own measure alias, so it's wrapped to the
+    ``(bucket, grp[, grp2, …], v)`` shape the other series-breakdown path emits.
+    Raises ``QueryError`` when the rewrite can't express the request — the caller
+    probes with this and falls back rather than failing mid-series.
+    """
+    dim_cols = list(dim_cols) if isinstance(dim_cols, (list, tuple)) else [dim_cols]
+    payload = gq.build_payload(config, "table", win, filter_by or {}, dim_cols, None)
+    try:
+        inner, params = gq.build_sql(config, payload)
+    except (ValueError, KeyError) as exc:
+        # gen_query raises ValueError for a dimension it can't group by / a shape the
+        # pushdown doesn't handle; KeyError for a field the config never declared.
+        raise QueryError(str(exc)) from exc
+    grp_aliases = ["grp" if i == 0 else "grp%d" % (i + 1) for i in range(len(dim_cols))]
+    measure = _outer_measure_alias(inner, grp_aliases)
+    if measure is None:
+        raise QueryError("cannot identify the measure column of the grouped query for "
+                         "KPI %r" % config.get("name"))
+    sql = ("SELECT %s AS bucket, %s, _b.%s AS v FROM (%s) _b"
+           % (gq._lit(label), ", ".join("_b.%s AS %s" % (a, a) for a in grp_aliases),
+              measure, inner))
+    return sql, params
+
+
+def _sql_series_breakdown_style(config: dict, dim_cols: List[str], probe_win,
+                                filter_by: Optional[Dict[str, Any]]):
+    """How (if at all) a SQL-mode trend can be broken down by ``dim_cols``.
+
+    Returns ``(style, reason)``: style ``"inject"`` (rewrite the authored query to
+    GROUP BY the dimension — keeps filters, needs no authored breakdown query),
+    ``"authored"`` (the KPI's own ``{dim}`` breakdown query, which cannot apply
+    filters), or ``None`` plus the reason the trend has to stay ungrouped.
+
+    Injection is decided by PROBING it on one window — a pure SQL build, no DB round
+    trip — so an authored shape the rewriter can't express falls back to the authored
+    template (or an explained ungrouped trend) instead of raising mid-series.
+    """
+    try:
+        _sql_bucket_injected_breakdown(config, dim_cols, probe_win, "probe", filter_by)
+        return "inject", None
+    except QueryError as exc:
+        inject_reason = str(exc)
+    real_filters = [k for k in (filter_by or {}) if k != "granularity"]
+    if _breakdown_inner_sql(config, dim_cols) is None:
+        return None, ("this SQL-mode KPI can't group its authored query by %s (%s), and it "
+                      "has no reusable breakdown query either, so the overall trend is "
+                      "shown." % (dim_cols, inject_reason))
+    if real_filters:
+        return None, ("this SQL-mode breakdown can't also apply filter(s) %s, so the "
+                      "overall trend is shown." % real_filters)
+    return "authored", None
+
+
 def _sql_bucket_breakdown(config: dict, dim_cols, win, label: str):
     """One time bucket of a SQL-mode trend broken down by one or more dimensions.
 
@@ -666,9 +759,12 @@ async def generate_query(
     # subset; anything unavailable (e.g. NPS "by CI name", where the survey table has
     # no CI column) is recorded so the answer says so, never silently dropped.
     #   * DSL KPIs group by the valid dims directly (bucket + dims).
-    #   * SQL-mode KPIs fold the valid dims into a composite key and run the authored
-    #     {dim} breakdown query per bucket; per-KPI filters can't be added there.
+    #   * SQL-mode KPIs run a grouped query per bucket, preferring the same GROUP BY
+    #     injection table mode uses (works without an authored breakdown query AND
+    #     keeps the filters) and falling back to the authored {dim} breakdown query
+    #     (no filters) — see _sql_series_breakdown_style.
     sql_series_dim_cols: Optional[List[str]] = None
+    sql_series_style: Optional[str] = None
     dimension_note: Optional[str] = None
     if mode == "series" and eff_dim:
         dims_list = list(eff_dim) if isinstance(eff_dim, (list, tuple)) else [eff_dim]
@@ -681,19 +777,20 @@ async def generate_query(
             return d in dims_allowed or _dim_to_column(config, d) in schema_cols
         valid = [d for d in dims_list if _ok(d)]
         invalid = [d for d in dims_list if not _ok(d)]
-        real_filters = [k for k in filter_by if k != "granularity"]
+
+        style_reason: Optional[str] = None
+        if valid and is_sql:
+            # Probe on the full window (a CPU-only SQL build) so the per-bucket loop
+            # below only ever runs a shape we know builds.
+            sql_series_style, style_reason = _sql_series_breakdown_style(
+                config, valid, (gq._start(frm), gq._end(to)), filter_by)
 
         if not valid:
             dimension_note = ("this KPI can't break its trend down by %s, so the overall "
                               "trend is shown." % dims_list)
             eff_dim = None
-        elif is_sql and _breakdown_inner_sql(config, valid) is None:
-            dimension_note = ("this SQL-mode KPI has no reusable breakdown query, so the "
-                              "overall trend is shown (not per %s)." % valid)
-            eff_dim = None
-        elif is_sql and real_filters:
-            dimension_note = ("this SQL-mode breakdown can't also apply filter(s) %s, so the "
-                              "overall trend is shown." % real_filters)
+        elif is_sql and sql_series_style is None:
+            dimension_note = style_reason
             eff_dim = None
         else:
             eff_dim = valid if len(valid) > 1 else valid[0]
@@ -702,6 +799,27 @@ async def generate_query(
             if invalid:                       # partial: valid subset kept, rest unavailable
                 dimension_note = ("broke the trend down by %s; %s not available on this "
                                   "metric." % (valid, invalid))
+
+    # A "trend by <dim>" whose window holds only ONE bucket is a breakdown, not a
+    # trend: at the caller's own grain there is nothing to trend across, and table
+    # mode answers it with one grouped query instead of one per bucket. So "monthly
+    # availability by sector for February 2026" -- a single monthly bucket -- runs as
+    # mode='table' rather than being re-bucketed into four weekly points nobody asked
+    # for. Mirrors the stat+dim -> table promotion above. Deliberately narrow:
+    #   * the caller's REQUESTED grain decides (falling back to the derived one), so
+    #     this reads the request rather than _auto_grain's correction of it;
+    #   * only when the breakdown is known to BUILD in table mode (a DSL KPI, or a
+    #     SQL-mode one whose query the group-by injector can rewrite) -- otherwise
+    #     an ungrouped trend plus `dimension_note` stays the better answer than the
+    #     hard error table mode would raise;
+    #   * never for a comparison (two windows ARE the trend) or an as-of snapshot.
+    if (mode == "series" and eff_dim and not cmp_pair and not as_of
+            and (not is_sql or sql_series_style == "inject")
+            and len(bucket_windows(frm, to, grain or eff_grain)) < 2):
+        mode_note = ("the requested window is a single %s bucket, so this ran as "
+                     "mode='table' (a breakdown by %s) -- there is no trend to show "
+                     "across one bucket." % (grain or eff_grain, eff_dim))
+        mode, eff_grain, sql_series_dim_cols = "table", None, None
 
     side_of_label: Dict[str, str] = {}   # result label -> "previous" | "current"
 
@@ -761,8 +879,13 @@ async def generate_query(
     # ---- generate SQL per window ----------------------------------------
     results: List[Dict[str, Any]] = []
     for label, win in windows:
-        if sql_series_dim_cols:
-            # SQL-mode per-dimension trend: authored breakdown query per bucket.
+        if sql_series_dim_cols and sql_series_style == "inject":
+            # SQL-mode per-dimension trend: the authored query rewritten to GROUP BY
+            # the dimension(s), run once per bucket (filters still applied).
+            sql, params = _sql_bucket_injected_breakdown(
+                config, sql_series_dim_cols, win, label, filter_by)
+        elif sql_series_dim_cols:
+            # No injectable shape: the KPI's authored {dim} breakdown query per bucket.
             sql, params = _sql_bucket_breakdown(config, sql_series_dim_cols, win, label)
         else:
             payload = gq.build_payload(config, mode, win, filter_by, eff_dim, eff_grain)
